@@ -1,0 +1,76 @@
+{
+  "input_timeout_s": 0.25,
+  "pico_timeout_s": 0.25,
+  "neutral_threshold": 0.12,
+  "deadzone": 0.18,
+  "buttons": {
+    "stand": 0,
+    "stop": 1,
+    "walk": 2,
+    "teleop": 3,
+    "deadman": 5,
+    "calibrate": 8,
+    "enable": 9
+  },
+  "velocity": {
+    "max_forward": 0.3,
+    "max_lateral": 0.2,
+    "max_angular": 0.4,
+    "min_nonzero": 0.2
+  },
+  "upper": {
+    "hardware_limits_confirmed": false,
+    "limits": {
+      "waist_roll_joint": [
+        -0.2618,
+        0.2618
+      ],
+      "waist_yaw_joint": [
+        -1.5708,
+        1.5708
+      ],
+      "left_shoulder_pitch_joint": [
+        -3.1416,
+        1.5708
+      ],
+      "left_shoulder_roll_joint": [
+        -0.087266,
+        2.7925
+      ],
+      "left_shoulder_yaw_joint": [
+        -1.5708,
+        1.5708
+      ],
+      "left_elbow_joint": [
+        -0.87266,
+        1.6581
+      ],
+      "right_shoulder_pitch_joint": [
+        -3.1416,
+        1.5708
+      ],
+      "right_shoulder_roll_joint": [
+        -2.7925,
+        0.087266
+      ],
+      "right_shoulder_yaw_joint": [
+        -1.5708,
+        1.5708
+      ],
+      "right_elbow_joint": [
+        -0.87266,
+        1.6581
+      ]
+    },
+    "max_joint_step_rad": 0.08
+  },
+  "ros2": {
+    "source_name": "edge_q1",
+    "priority": 30,
+    "source_timeout_ms": 1000,
+    "feedback_timeout_s": 0.25,
+    "command_timeout_s": 0.25,
+    "service_timeout_s": 3.0,
+    "transition_timeout_s": 20.0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "javascript_errors": [],
+  "mock_backend": true,
+  "calibration_enable_walk_deadman_release": true,
+  "pico_relative_hand_ik": true,
+  "pico_grip_release_holds": true,
+  "blur_disables": true,
+  "mobile_no_horizontal_overflow": true,
+  "moving_velocity": {
+    "forward": 0.2634146341463415,
+    "lateral": 0,
+    "angular": 0
+  },
+  "ik_error_m": 0.00010156268888826398
+}

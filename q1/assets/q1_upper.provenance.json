@@ -1,0 +1,47 @@
+{
+  "model": "Q1 v3 fixed-base upper-body forward-kinematics tree",
+  "source": {
+    "url": "https://raw.githubusercontent.com/PrimebotTech/primebot_rl_mjlab/2153a6c561b3b755ae5bcca89683cb66d5ad5852/src/assets/robots/q1_v3/xml/q1_v3_mc_without_scene.xml",
+    "sha256": "837de014fa01baaa70e6b59a0e3826ebcc349bd02369eded3b2dd99d5c3e2df4",
+    "git_blob_sha": "89fbd1feb8739524786de7c65338966b5a7a43bf"
+  },
+  "source_local_path": "/data/kk/data/supermimic_q1/sources/q1_v3/official.xml",
+  "source_revision": "2153a6c561b3b755ae5bcca89683cb66d5ad5852",
+  "asset_sha256": "e0123f155a77dab6714a46252adf81510085cbae3813d8aa3746b6e610602142",
+  "transform": "Retain pelvis and complete waist-roll subtree with original body name/pos/quat and joint name/pos/axis/range/type; remove meshes, collision geometry, inertials, dynamics, actuators and free base. Add hand sites at original wrist_yaw_link origins.",
+  "frame": "Model world axes: +X forward, +Y left, +Z up; fixed pelvis position (0,0,0.419)m. MJCF quaternions wxyz; Pico frame quaternions xyzw.",
+  "controlled_endpoint": "Each original wrist_yaw_link origin, not an invented wrist DOF or 6DOF palm target.",
+  "hardware_limits_confirmed": false,
+  "limits_warning": "These are model limits. SDK documentation uses conflicting bounds. A confirmed hardware limits and zero-direction profile plus measured neutral calibration is required before live upper motion.",
+  "pico_sdk": {
+    "repository": "https://github.com/XR-Robotics/XRoboToolkit-PC-Service-Pybind",
+    "revision": "8941e1dbbf4313fe83846f82984eaa8c992690bf",
+    "binding_blob_sha": "04cd4063907e8f2d09d360345a854ca9824d238e",
+    "timestamp": "get_time_stamp_ns() returns cached native timeStampNs, not PC receipt time. Native per-controller validity and atomic pose snapshot are not exposed."
+  },
+  "axis_convention": {
+    "matrix": [
+      [
+        0,
+        0,
+        -1
+      ],
+      [
+        -1,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0
+      ]
+    ],
+    "reference": "/data/kk/RLinf/rlinf/robotics/parts/transports/pico.py; calibration rotates this convention by the neutral headset heading."
+  },
+  "license": {
+    "spdx": "Apache-2.0",
+    "url": "https://github.com/PrimebotTech/primebot_rl_mjlab/blob/2153a6c561b3b755ae5bcca89683cb66d5ad5852/LICENCE",
+    "git_blob_sha": "7b72d429a403d760f5ca0e260ea324dbb35854c9"
+  }
+}

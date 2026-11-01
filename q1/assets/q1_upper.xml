@@ -1,0 +1,44 @@
+<mujoco model="q1_upper_fk">
+  <compiler angle="radian" />
+  <worldbody>
+    <body name="pelvis" pos="0 0 0.419">
+      <body name="waist_roll_link" pos="0.0015 0 0.0895">
+        <joint name="waist_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.2618 0.2618" />
+        <body name="torso_link" pos="0 0 0.041">
+          <joint name="waist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.5708 1.5708" />
+          <body name="left_shoulder_pitch_link" pos="-0.01 0.086836 0.17439" quat="0.999048 0.0436192 0 0">
+            <joint name="left_shoulder_pitch_joint" pos="0 0 0" axis="0 1 0" range="-3.1416 1.5708" />
+            <body name="left_shoulder_roll_link" pos="0 0.0358 0" quat="0.999048 -0.0436192 0 0">
+              <joint name="left_shoulder_roll_joint" pos="0 0 0" axis="1 0 0" range="-0.087266 2.7925" />
+              <body name="left_shoulder_yaw_link" pos="0 0 -0.0736">
+                <joint name="left_shoulder_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.5708 1.5708" />
+                <body name="left_elbow_link" pos="0.01 0 -0.0706">
+                  <joint name="left_elbow_joint" pos="0 0 0" axis="0 1 0" range="-0.87266 1.6581" />
+                  <body name="left_wrist_yaw_link" pos="0.126588 0 -0.01">
+                    <site name="left_hand" pos="0 0 0" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+          <body name="right_shoulder_pitch_link" pos="-0.01 -0.086836 0.17439" quat="0.999048 -0.0436192 0 0">
+            <joint name="right_shoulder_pitch_joint" pos="0 0 0" axis="0 1 0" range="-3.1416 1.5708" />
+            <body name="right_shoulder_roll_link" pos="0 -0.0358 0" quat="0.999048 0.0436192 0 0">
+              <joint name="right_shoulder_roll_joint" pos="0 0 0" axis="1 0 0" range="-2.7925 0.087266" />
+              <body name="right_shoulder_yaw_link" pos="0 0 -0.0736">
+                <joint name="right_shoulder_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1.5708 1.5708" />
+                <body name="right_elbow_link" pos="0.01 0 -0.0706">
+                  <joint name="right_elbow_joint" pos="0 0 0" axis="0 1 0" range="-0.87266 1.6581" />
+                  <body name="right_wrist_yaw_link" pos="0.126588 0 -0.01">
+                    <site name="right_hand" pos="0 0 0" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+          <body name="head_link" pos="0 0 0.2625" />
+        </body>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

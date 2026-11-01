@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="api-token" content="__Q1_API_TOKEN__">
+  <meta name="description" content="Q1 native MC and Pico4Ultra local operator console">
+  <title>Q1 · Edge console</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Q1 operator console"><span class="brand-mark">Q<span>1</span></span><span>EDGE CONSOLE<small>具身交互 / OPERATOR STATION</small></span></a>
+    <div class="header-status"><span id="backend-badge" class="badge badge-mock">MOCK · 仿真</span><span id="connection-status" class="connection"><i></i>连接中</span><span class="local-label">LOCAL / Q1</span></div>
+  </header>
+  <main>
+    <section class="page-heading" aria-labelledby="page-title">
+      <div><div class="eyebrow">NATIVE BALANCE. HUMAN INTENT.</div><h1 id="page-title">Q1 交互控制台<span class="title-slash">/</span><span>01</span></h1><p>Pico4Ultra 上身遥操作 · 原生 MC 平衡与行走</p></div>
+      <div class="session-meta"><span id="session-backend">OFFLINE</span><small id="clock">--:--:-- 北京时间</small></div>
+    </section>
+
+    <div id="environment-banner" class="environment-banner"><span class="banner-icon">◇</span><div><strong id="environment-title">正在连接本地控制服务</strong><span id="environment-detail">等待 /api/state。设备状态只以服务端反馈为准。</span></div><span class="badge badge-outline" id="environment-tag">CONNECTING</span></div>
+    <div id="error-panel" class="error-panel" role="alert" hidden><span id="error-message"></span><button id="dismiss-error" type="button" aria-label="Dismiss error">×</button></div>
+
+    <div class="dashboard">
+      <section class="card control-card" aria-labelledby="control-title">
+        <div class="card-heading"><div><span class="section-no">01</span><h2 id="control-title">控制站</h2></div><span class="small-label">OPERATION</span></div>
+        <div class="mode-display"><span class="small-label">CURRENT MODE</span><div><span id="mode-dot" class="mode-dot"></span><strong id="mode-name">待连接</strong></div><p id="controller-status">等待控制服务</p></div>
+        <div class="setup-actions"><button id="calibrate-button" class="button button-secondary" type="button" data-action="calibrate" disabled><span>◎</span> 中立位标定<small>BACK</small></button><button id="enable-button" class="button button-primary" type="button" data-action="enable" disabled><span>↗</span> 使能<small>START</small></button></div>
+        <p class="action-hint" id="next-step">连接服务后，先标定中立位，再显式使能。</p>
+        <div class="mode-buttons" role="group" aria-label="Exclusive robot mode">
+          <button id="stand-button" type="button" class="mode-button" data-action="stand" disabled><span class="mode-icon">▯</span><strong>平衡站立</strong><small>A / STAND</small></button>
+          <button id="walk-button" type="button" class="mode-button" data-action="walk" disabled><span class="mode-icon">↗</span><strong>行走</strong><small>X / WALK</small></button>
+          <button id="teleop-button" type="button" class="mode-button" data-action="teleop" disabled><span class="mode-icon">⌘</span><strong>Pico 遥操作</strong><small>Y / UPPER</small></button>
+        </div>
+        <p class="quiet mode-note">站立、行走、上身遥操作互斥；切换由原生 MC 完成。</p>
+        <button id="stop-button" class="stop-button" type="button" data-action="stop"><span class="stop-symbol">■</span><span>软件停止<small>SOFTWARE STOP / B</small></span><kbd>Esc</kbd></button>
+        <p class="stop-note">清零命令并请求平衡站立。此按钮不是物理急停。</p>
+        <div class="checks" aria-label="Controller prerequisites">
+          <div><span id="check-input" class="check-dot"></span><span>控制输入</span><strong id="check-input-text">等待</strong></div>
+          <div><span id="check-calibration" class="check-dot"></span><span>中立位标定</span><strong id="check-calibration-text">未标定</strong></div>
+          <div><span id="check-enable" class="check-dot"></span><span>显式使能</span><strong id="check-enable-text">未使能</strong></div>
+          <div><span id="check-native" class="check-dot"></span><span>原生 MC</span><strong id="check-native-text">等待</strong></div>
+        </div>
+        <button id="clear-fault-button" type="button" class="text-button" data-action="clear_fault" hidden>清除故障锁定 →</button>
+      </section>
+
+      <section class="card robot-card" aria-labelledby="robot-title">
+        <div class="card-heading"><div><span class="section-no">02</span><h2 id="robot-title">机器人反馈</h2></div><span id="robot-connection" class="badge badge-outline">NO FEEDBACK</span></div>
+        <div class="robot-scene">
+          <div class="scene-label"><span>UPPER BODY</span><small>SCHEMATIC / 10 DOF</small></div>
+          <svg class="robot-svg" viewBox="0 0 420 290" role="img" aria-label="Q1 upper body schematic with ten joints">
+            <defs><linearGradient id="body-fill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#263843"/><stop offset="1" stop-color="#101c25"/></linearGradient><pattern id="scene-grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M 28 0 L 0 0 0 28" fill="none" stroke="#61d9df" stroke-opacity=".07"/></pattern></defs>
+            <rect width="420" height="290" fill="url(#scene-grid)"/>
+            <ellipse cx="210" cy="267" rx="112" ry="14" fill="none" stroke="#334953"/>
+            <path d="M210 12V278M48 145H372" class="scene-axis"/>
+            <g fill="url(#body-fill)" stroke="#647884" stroke-width="1.5">
+              <path d="M177 98L243 98 255 166 236 197 184 197 165 166Z"/>
+              <path d="M188 47Q210 37 232 47L237 78 223 90H197L183 78Z"/>
+              <path d="M189 203H231L240 227 228 239H192L180 227Z"/>
+              <path d="M181 244L204 245 199 265 176 265Z M216 245L239 244 244 265 221 265Z"/>
+            </g>
+            <path d="M195 63H225" stroke="#7af4e8" stroke-width="4" stroke-linecap="round"/>
+            <path d="M190 116H230M194 124H226M198 132H222" stroke="#405664" stroke-width="3"/>
+            <g id="arm-left" fill="url(#body-fill)" stroke="#647884" stroke-width="1.5"><path d="M164 102L145 108 127 153 144 163 170 122Z"/><path d="M130 160L115 192 125 203 146 170Z"/><path d="M115 198L106 212 115 221 128 205Z"/></g>
+            <g id="arm-right" fill="url(#body-fill)" stroke="#647884" stroke-width="1.5"><path d="M256 102L275 108 293 153 276 163 250 122Z"/><path d="M290 160L305 192 295 203 274 170Z"/><path d="M305 198L314 212 305 221 292 205Z"/></g>
+            <g class="robot-joints"><circle cx="210" cy="211" r="5"/><circle cx="210" cy="229" r="5"/><circle cx="161" cy="109" r="5"/><circle cx="151" cy="124" r="4"/><circle cx="145" cy="137" r="4"/><circle cx="135" cy="162" r="5"/><circle cx="259" cy="109" r="5"/><circle cx="269" cy="124" r="4"/><circle cx="275" cy="137" r="4"/><circle cx="285" cy="162" r="5"/></g>
+            <g class="scene-annotation"><path d="M165 111H81L67 99"/><path d="M255 111H339L353 99"/><path d="M218 222H320L334 234"/><text x="40" y="94">LEFT / 4</text><text x="330" y="94">RIGHT / 4</text><text x="328" y="249">WAIST / 2</text></g>
+          </svg>
+          <div class="scene-footer"><span><i class="legend-dot actual"></i>实际反馈</span><span><i class="legend-dot target"></i>目标命令</span><span id="joint-age">反馈 -- ms</span></div>
+        </div>
+        <div class="velocity-strip" aria-label="Command velocity"><div><small>FORWARD</small><strong id="velocity-forward">0.00<em>m/s</em></strong></div><div><small>LATERAL</small><strong id="velocity-lateral">0.00<em>m/s</em></strong></div><div><small>YAW</small><strong id="velocity-angular">0.00<em>rad/s</em></strong></div></div>
+        <div class="joints-heading"><span>关节位置 <small>rad · 视觉刻度 ±π，非硬件限位</small></span><span>实际 / 目标</span></div>
+        <div id="joint-list" class="joint-list" aria-label="Ten actual and target joint positions"></div>
+      </section>
+
+      <section class="card input-card" aria-labelledby="input-title">
+        <div class="card-heading"><div><span class="section-no">03</span><h2 id="input-title">控制输入</h2></div><span id="input-source-badge" class="badge badge-mock">SIMULATED</span></div>
+        <label class="field-label" for="source-select">输入源 / INPUT SOURCE</label>
+        <select id="source-select"><option value="simulator">模拟手柄 · Simulator</option><option value="browser_gamepad">浏览器手柄 · Gamepad API</option></select>
+        <div class="input-status-line"><span id="pad-status">模拟输入已选择</span><span id="input-age">-- ms</span></div>
+        <div id="simulator-controls">
+          <div class="axis-control"><label for="axis-0">横移 <small>LEFT X</small></label><input id="axis-0" type="range" min="-1" max="1" step="0.01" value="0"><output id="axis-0-value" for="axis-0">0.00</output></div>
+          <div class="axis-control"><label for="axis-1">前后 <small>LEFT Y</small></label><input id="axis-1" type="range" min="-1" max="1" step="0.01" value="0"><output id="axis-1-value" for="axis-1">0.00</output></div>
+          <div class="axis-control"><label for="axis-2">转向 <small>RIGHT X</small></label><input id="axis-2" type="range" min="-1" max="1" step="0.01" value="0"><output id="axis-2-value" for="axis-2">0.00</output></div>
+          <div class="axis-control"><label for="axis-3">右摇杆 Y <small>RIGHT Y</small></label><input id="axis-3" type="range" min="-1" max="1" step="0.01" value="0"><output id="axis-3-value" for="axis-3">0.00</output></div>
+          <button id="deadman-button" class="deadman-button" type="button" aria-pressed="false"><span class="deadman-indicator"></span><span>按住允许运动<small>HOLD / RB · SPACE</small></span><span class="hold-glyph">↧</span></button>
+          <div class="input-tools"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 平移 · <kbd>Q</kbd><kbd>E</kbd> 转向</span><button id="neutral-button" type="button" class="text-button">归中</button></div>
+        </div>
+        <div id="browser-pad-info" class="browser-pad-info" hidden><div class="gamepad-glyph">⌘</div><strong id="gamepad-name">未检测到物理手柄</strong><p id="gamepad-detail">连接标准映射手柄，然后按任意按钮唤醒浏览器。</p><div class="pad-axes" id="pad-axes">LX 0.00 · LY 0.00 · RX 0.00 · RY 0.00</div><span id="real-deadman" class="badge badge-outline">RB RELEASED</span></div>
+        <div class="mapping"><span><b>A</b>站立</span><span><b>B</b>停止</span><span><b>X</b>行走</span><span><b>Y</b>遥操作</span><span><b>RB</b>按住运行</span><span><b>BACK</b>标定</span><span><b>START</b>使能</span></div>
+        <p class="quiet">切换输入源、断开手柄、窗口失焦或切换标签页会停止并解除使能；恢复后请重新使能。</p>
+      </section>
+
+      <section class="card pico-card" aria-labelledby="pico-title">
+        <div class="card-heading"><div><span class="section-no">04</span><h2 id="pico-title">Pico4Ultra</h2></div><span id="pico-source-badge" class="badge badge-mock">SIMULATED POSE</span></div>
+        <div class="pico-sources"><div><span class="small-label">NATIVE XROBOTOOLKIT</span><strong id="native-pico-status">未收到原生数据</strong></div><div><span class="small-label">ACTIVE POSE</span><strong id="pico-status">等待帧</strong></div></div>
+        <p class="pico-note" id="pico-note">以下模拟姿态仅发送到 MOCK；不会向 ROS2 发送。实际 Pico 使用官方 XRoboToolkit PC Service。</p>
+        <div id="pico-simulator-controls">
+          <div class="pico-control-group"><span class="field-label">头部 / HEAD</span><div class="pico-head-controls"><label for="head-yaw">Yaw <input id="head-yaw" type="range" min="-45" max="45" step="1" value="0"><output id="head-yaw-value" for="head-yaw">0°</output></label><label for="head-roll">Roll <input id="head-roll" type="range" min="-20" max="20" step="1" value="0"><output id="head-roll-value" for="head-roll">0°</output></label></div></div>
+          <div class="hands-grid"><fieldset><legend>左手 / LEFT HAND</legend><div class="hand-axis"><label for="left-x">X</label><input id="left-x" type="range" min="-0.2" max="0.2" step="0.005" value="0"><output id="left-x-value" for="left-x">0.000</output></div><div class="hand-axis"><label for="left-y">Y</label><input id="left-y" type="range" min="-0.2" max="0.2" step="0.005" value="0"><output id="left-y-value" for="left-y">0.000</output></div><div class="hand-axis"><label for="left-z">Z</label><input id="left-z" type="range" min="-0.2" max="0.2" step="0.005" value="0"><output id="left-z-value" for="left-z">0.000</output></div><label class="grip-control" for="left-grip"><input id="left-grip" type="checkbox"><span class="grip-light"></span>左 Grip <small>1.0</small></label></fieldset><fieldset><legend>右手 / RIGHT HAND</legend><div class="hand-axis"><label for="right-x">X</label><input id="right-x" type="range" min="-0.2" max="0.2" step="0.005" value="0"><output id="right-x-value" for="right-x">0.000</output></div><div class="hand-axis"><label for="right-y">Y</label><input id="right-y" type="range" min="-0.2" max="0.2" step="0.005" value="0"><output id="right-y-value" for="right-y">0.000</output></div><div class="hand-axis"><label for="right-z">Z</label><input id="right-z" type="range" min="-0.2" max="0.2" step="0.005" value="0"><output id="right-z-value" for="right-z">0.000</output></div><label class="grip-control" for="right-grip"><input id="right-grip" type="checkbox"><span class="grip-light"></span>右 Grip <small>1.0</small></label></fieldset></div>
+          <div class="pico-footer"><span>手部偏移：米 / 双 Grip ≥ 0.7 才运动</span><button id="pico-neutral-button" type="button" class="text-button">姿态归中</button></div>
+        </div>
+        <div class="tracking-metrics"><div><small>POSE AGE</small><strong id="pico-age">--<em>ms</em></strong></div><div><small>IK ERROR</small><strong id="ik-error">--<em>m</em></strong></div><div><small>CALIBRATION</small><strong id="pico-calibration">未标定</strong></div></div>
+        <p class="quiet">双手 4 DOF 位置映射。释放 Grip 冻结上身，再握持时从实测姿态重新对齐。</p>
+      </section>
+
+      <section class="card events-card" aria-labelledby="events-title">
+        <div class="card-heading"><div><span class="section-no">05</span><h2 id="events-title">运行记录</h2></div><span class="small-label">EVENT STREAM</span></div>
+        <ol id="event-list" class="event-list" aria-live="polite" aria-relevant="additions"><li class="empty-event">等待控制服务事件…</li></ol>
+        <div class="future-module"><span class="future-icon">✳</span><div><strong>SuperMimic</strong><p id="supermimic-reason">后续独立 HAL 后端，尚未实现。</p></div><span class="badge badge-outline">PENDING</span></div>
+      </section>
+    </div>
+    <footer class="page-footer"><span>Q1 / EDGE INTERACTION SYSTEM</span><span id="footer-status">20 Hz input · 10 Hz feedback · native MC</span><span>PHYSICAL DEVICES UNVERIFIED</span></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+runtime/
+*.jsonl
+build/
+install/
+log/
+.ros_ws/
+config/local.json
+logs/
+
+.venv-ros/

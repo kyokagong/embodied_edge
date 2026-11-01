@@ -1,0 +1,258 @@
+{
+  "repository": "https://github.com/PrimebotTech/primebot-q1-sdk",
+  "commit": "7310314eee058323a2c15ab1f4f947df4112573e",
+  "retrieved_via": "GitHub connected fetch_file at explicit ref; Git blob hashes verified",
+  "contents": "Complete aimdk_msgs ROS2 package, three Python reference examples and original usage notice",
+  "upstream_notice": "友好用户使用声明.md",
+  "license_note": "aimdk_msgs/package.xml declares Apache License 2.0. No root LICENSE file was found at this commit. The original usage notice is preserved.",
+  "files": {
+    "aimdk_msgs/common/CommonRequest.msg": {
+      "git_blob_sha": "aa81842c82f240da3f2d44784054902315018b6f",
+      "sha256": "4a6cb4e09e314c68a8daccfd82eae36ad85c30b366061ff1b5fd5ebba44340e5"
+    },
+    "aimdk_msgs/common/CommonState.msg": {
+      "git_blob_sha": "6e35659a3abe967d5a9e0a77c138eab9c1273852",
+      "sha256": "457b2d066a0864bd90ee3df1fe16f29b30972acfab2b3aa722b62b671dcc6af7"
+    },
+    "aimdk_msgs/common/CommonTaskResponse.msg": {
+      "git_blob_sha": "9841a649aa78017fdc778c15a30ca355b4b8a7d5",
+      "sha256": "6e80c5a0ff60087b8fb0f6bf8747eb01504da7e71ae431944e2056c98ce171a2"
+    },
+    "aimdk_msgs/common/MessageHeader.msg": {
+      "git_blob_sha": "f0cd647ae82ac045709cc79e57cbbf44a31a7861",
+      "sha256": "ea70387167120925f14373d1ac9030ac529b1c44c49503db6c2ac012d5a3efb4"
+    },
+    "aimdk_msgs/common/RequestHeader.msg": {
+      "git_blob_sha": "d5344be5694e0c9e6084ba0ce89c2549aa636779",
+      "sha256": "48a9467857fa698ba1de18236f9f80741406e5d4bfedfffd36be6fa50fb10664"
+    },
+    "aimdk_msgs/common/ResponseHeader.msg": {
+      "git_blob_sha": "6391731a360d40d181d8d7ab2029f21610d39878",
+      "sha256": "d5d78dddcee2ab78e32c4ad81cac5d69b078a99fc637ba4a08fb9a03ba52d87f"
+    },
+    "aimdk_msgs/hal/msg/JointCommand.msg": {
+      "git_blob_sha": "a8e9889dedf55854c82faf4bd69cd5274c88ac33",
+      "sha256": "e67628ead94c983314414850c5d500ab4bcade22285a4d431544035be067c3f2"
+    },
+    "aimdk_msgs/hal/msg/JointState.msg": {
+      "git_blob_sha": "76a7b3b962ace371a6973b756b4e44b8411db529",
+      "sha256": "5aa992c4e9f4580f165494a64a8f729d0e4018c9e7a0933c36d7553f5ace4cb2"
+    },
+    "aimdk_msgs/hal/msg/JointStateArray.msg": {
+      "git_blob_sha": "d4f202ed6011575a01772357c9df19b01bdcd63b",
+      "sha256": "91e66ba438a162d08e94db94fcca018c78086bcc40642d2b9cd5edd3024ad4bc"
+    },
+    "aimdk_msgs/mc/action/McAction.msg": {
+      "git_blob_sha": "aad5a8e150b8348ad0243ea4735d0c8cde64e58d",
+      "sha256": "7e2fe6db35c84312bf0a5aefddd89d2c060d3c88d5bcb8463677c742c244926e"
+    },
+    "aimdk_msgs/mc/action/McActionCommand.msg": {
+      "git_blob_sha": "b4ab211f2186ede2e3f3da77a0bbffcd4c98b06f",
+      "sha256": "554c0cf5e3f4e055a95a57ad2b47e0b4528a3a3f6b31d2acacb658e9ec225cf6"
+    },
+    "aimdk_msgs/mc/action/McActionInfo.msg": {
+      "git_blob_sha": "261b581eccef6c1c319c4a51ed1ae7e34acfb882",
+      "sha256": "9a701201acef56f5219b667193a3a532eff5ea07c41755f6eceedef9e3774b8e"
+    },
+    "aimdk_msgs/mc/action/McActionStatus.msg": {
+      "git_blob_sha": "4f82a891263bf083e6f58588adb4cfb234ad7983",
+      "sha256": "449daa669493202bb11969699acfabebd997006e8c0541caf95ef2f3a9ff7b06"
+    },
+    "aimdk_msgs/mc/action/srv/GetMcAction.srv": {
+      "git_blob_sha": "17ffba8ed9a9c3922735ed50269a2ca7869bc41f",
+      "sha256": "a3bd4cc6e0eb2dcdafdccf1aef0dae0162de4e64f6dc8687812aadf7e447d222"
+    },
+    "aimdk_msgs/mc/action/srv/SetMcAction.srv": {
+      "git_blob_sha": "f8346e119ffb4ec7552b1d2ce7fd2375741ea594",
+      "sha256": "805ed95583cc15adcbfe3953e43cc6f197dc9f0a697ca9a5c06ac08c58546848"
+    },
+    "aimdk_msgs/mc/motion/McCustomJointCommand.msg": {
+      "git_blob_sha": "562b6193b0a26c69dca875c950b7ebca0c8caefd",
+      "sha256": "8ced2a881beaab7e3b8f6f02c7cf1f26a1a0b027042c9ae09e40142b09b6af0c"
+    },
+    "aimdk_msgs/mc/motion/McInputAction.msg": {
+      "git_blob_sha": "7a1b3e902d26afe281d464e94e20e01d2d31f694",
+      "sha256": "adcc021e0dcc189fe9a1cf1ce7818a63cbbf385f8679fd520400c03ba5979aee"
+    },
+    "aimdk_msgs/mc/motion/McInputSource.msg": {
+      "git_blob_sha": "254b83b1f09d7246b819d275900110810fe66026",
+      "sha256": "d1740a334177927074534c7bb9474a229154f25b69b8f107992afa960616ef8e"
+    },
+    "aimdk_msgs/mc/motion/McLocomotionVelocity.msg": {
+      "git_blob_sha": "2e7e15c3d26da8913c354bf435d5bd0c425c9eb6",
+      "sha256": "4402df5226def4c42e9f2494ec92396f9b50b99c464a6e7dc739b1ca3925e0a5"
+    },
+    "aimdk_msgs/mc/motion/srv/GetCurrentInputSource.srv": {
+      "git_blob_sha": "b5230f993de633cebcd4791dbb77f9742117f0a1",
+      "sha256": "ac902b323944bea03321e3e869e52dbae8b77398af38f5ddef335caa9daebfb6"
+    },
+    "aimdk_msgs/mc/motion/srv/SetMcInputSource.srv": {
+      "git_blob_sha": "41c0ad2e5817917a9f06df32c981a1e7cb19c0c0",
+      "sha256": "f6b0744105da51b49dd14ce581bac6b490ee2837e027712a44e0489300f57e34"
+    },
+    "友好用户使用声明.md": {
+      "git_blob_sha": "3eff6b4b1e23f9438ae83879bfd055fb287007ea",
+      "sha256": "43e6b6afcf94ad545464eadb1c6759062dc49198ecb6d59363b7af85054affc3"
+    },
+    "examples/python/mc_locomotion_velocity.py": {
+      "git_blob_sha": "3019e74900c253468c831f4fe44da2358775d4eb",
+      "sha256": "83885b10e6d9d50cdce7d2c7a6fa7133193790ed4fbb15446a6e2ac8b00f302b"
+    },
+    "examples/python/common/mc_action_switcher.py": {
+      "git_blob_sha": "a6f745b4aaf37ee67317aa74642126be535110fd",
+      "sha256": "f68e5bbd46d980a165712da21ddb1ae597b65ed3f6162e9f85e68aa28daeefec"
+    },
+    "examples/python/upper_body_control.py": {
+      "git_blob_sha": "8869c313053ddbbc2254f9ed681b18d4b2d5c5ae",
+      "sha256": "c44a8a9865141023693ef25e04c76aba0f392863edcd0e7a2cfe93c3478fed9a"
+    },
+    "aimdk_msgs/CMakeLists.txt": {
+      "git_blob_sha": "d5d531a149b951a1b026f13c679087e75f3d3729",
+      "sha256": "be09499c4b84b7178dd2b3084ea8ea0785ea6f6ce734a8e409ee64548b55ac01"
+    },
+    "aimdk_msgs/agent/msg/AsrResult.msg": {
+      "git_blob_sha": "f2623e5dfdb5ac2da5a6605a8eb4871d1004b0dc",
+      "sha256": "4d94a02018dc8627ced8e4b75d64eb1f1739cccd07545452ea985593302277f5"
+    },
+    "aimdk_msgs/common/CommonResponse.msg": {
+      "git_blob_sha": "cc1a325af3727fc6b3c1d54588b33a053ace710d",
+      "sha256": "bb33cf169353fa4ac412d85e54785fcf0e6d91d53dfe658f0ca728d555ff8382"
+    },
+    "aimdk_msgs/config/fastdds_profiles.xml": {
+      "git_blob_sha": "c1033d51d739fa221135bc8c4d3216c129a4f2b0",
+      "sha256": "541b51b47f9c7a2084bb7c063ef4f3cad9782de28c89103224c3682200573092"
+    },
+    "aimdk_msgs/env-hooks/aimdk_fastdds.sh.in": {
+      "git_blob_sha": "ebf55e8da3e98d5b196d8a45a9d35f054568b60b",
+      "sha256": "a517098c1484c0677d3816df6422f2fa81de181a1fcd8c66f90bfffb1b9b729a"
+    },
+    "aimdk_msgs/hal/audio/msg/AudioData.msg": {
+      "git_blob_sha": "736192677ece7ba72cd72435a8cf1f7ee4bc6585",
+      "sha256": "0f28b78583b9e0235845a7ab0b4e777c2a54c7e2bcba5229adcd965c7bb1f8cd"
+    },
+    "aimdk_msgs/hal/audio/msg/AudioDeviceInfo.msg": {
+      "git_blob_sha": "9703b7328c91b5b686e716029fa55ae5900faa8d",
+      "sha256": "0633bbda6f4580a212da7b14d2e0a5649a73876f43fb8886b506ecbc878789f8"
+    },
+    "aimdk_msgs/hal/audio/msg/AudioDeviceInfoList.msg": {
+      "git_blob_sha": "514a106f6c7c3b52a013bd4fcd0d5ccd0f5598c2",
+      "sha256": "7b8e0c33c247547021fcd056512bdd952ef79bf29b1ffb6f266be822224bb3b0"
+    },
+    "aimdk_msgs/hal/audio/msg/AudioFile.msg": {
+      "git_blob_sha": "a6fd5ed85cdc4091a616124bd02e7a9e86fd7823",
+      "sha256": "d1fad2bdb4c0b180f17b66bdb7af73b617e041db0b2c5b0c66e90ec075d4aca2"
+    },
+    "aimdk_msgs/hal/audio/msg/AudioInfo.msg": {
+      "git_blob_sha": "4694ec060c4335d6bfb077733dce5dfcd2581b70",
+      "sha256": "59551a2f877e1736de83a3eefb579008323cc6ef48a1d19486cab366fe152d52"
+    },
+    "aimdk_msgs/hal/audio/srv/GetMute.srv": {
+      "git_blob_sha": "8b1aede4c09e65d266e6f4d88c896dc1da990a8c",
+      "sha256": "c54abc10380e275d8809b2ac65b2cac6089f092f03f6218ee8fe5d4506246ad4"
+    },
+    "aimdk_msgs/hal/audio/srv/GetVolume.srv": {
+      "git_blob_sha": "2c5841b90a2219420146bbbd86e4d1af73332c1a",
+      "sha256": "c74d7cffceab576d27a246125d4ab9c80f2b4bfded44167ccc103a9edff2091d"
+    },
+    "aimdk_msgs/hal/audio/srv/PlayAudioFile.srv": {
+      "git_blob_sha": "ff14a1f74d71e3e6f5f673fc9b5ecd9aa8dfcc93",
+      "sha256": "5506c850f47c2ec2dba8490ac5d9550151d5d474cca35800bcbdf619dcf48f3d"
+    },
+    "aimdk_msgs/hal/audio/srv/SetMute.srv": {
+      "git_blob_sha": "df91738a60adb755aedece7f89b46bbe5e23ad38",
+      "sha256": "66ae87da6eaba5dd317430b261283fb988aef0985f3069e6b29582a9d7f9edd8"
+    },
+    "aimdk_msgs/hal/audio/srv/SetVolume.srv": {
+      "git_blob_sha": "2c93586a510527ad5df9c4537351eccd77490593",
+      "sha256": "b61fe03d32e31f1bce39f30b46d5a858c1a5b7eea44d3a039e1fda943d27b8f7"
+    },
+    "aimdk_msgs/hal/camera/msg/JpegImage.msg": {
+      "git_blob_sha": "130fb0de73250be01d3a0d5c9115201b5d7fe900",
+      "sha256": "10e811f2a906416c459a1225467ecd0dd0b5226cd68cfef80651ab30725dddaf"
+    },
+    "aimdk_msgs/hal/camera/srv/CaptureJpegImage.srv": {
+      "git_blob_sha": "3be2cdffb6926d3d071608558ccc9ff705868727",
+      "sha256": "cab5fe9bfa6b36da55afc9a1e07c6a770831b7dfbef696e5c846c61989685213"
+    },
+    "aimdk_msgs/hal/msg/Bms.msg": {
+      "git_blob_sha": "d41e396b1a9e9e336a814b862ceab0a88d6b9e0c",
+      "sha256": "cbd7d24927c68098510dc14fb0ace56e80f52c98b1a82776a033ee30bf7a5d52"
+    },
+    "aimdk_msgs/hal/msg/JointCommandArray.msg": {
+      "git_blob_sha": "6fa81e58e1e02c6c6268464fbfe0068edff74f88",
+      "sha256": "53b5958d611e44a2d69c642799433504dda6b88457d46a882a6e1e877ad1a8c3"
+    },
+    "aimdk_msgs/hal/msg/NeckLightState.msg": {
+      "git_blob_sha": "b3cc2ec441d32bf0f33049ac2d38cd01f20a63a7",
+      "sha256": "8fd96f3938ed01f6e2212079cebef0f2d1cc66d792f664d1edbfdc3a9f22be38"
+    },
+    "aimdk_msgs/hal/msg/TouchState.msg": {
+      "git_blob_sha": "4234624ccaa0beeef66d7bcd47e8f807006f1aa3",
+      "sha256": "adce628bbe21c79d4aa4bf66f52792b169033cfeeae69832b12e5c7c76b307c7"
+    },
+    "aimdk_msgs/hal/srv/LedStripCommand.srv": {
+      "git_blob_sha": "99acb578a2f77b9c27df9e082fb5f5fb7373e379",
+      "sha256": "4f3c061006545d21c8e8df0742c6ee2a3eca6f305d021dbe9680cb388113f291"
+    },
+    "aimdk_msgs/hal/srv/SetNeckLight.srv": {
+      "git_blob_sha": "f00d717132f41728c001ebe55a49e5f4baf726e1",
+      "sha256": "47c8df120be3b1d638b7fcca951e992215dd9c0d4f0af3a826cc5c28562a8408"
+    },
+    "aimdk_msgs/hal/srv/SetServo.srv": {
+      "git_blob_sha": "eb4548a9926d8ac8f86db1ebaf625d69643f0d22",
+      "sha256": "293be00ff8c2a502a4617c579a31296d93b463f608abd939dfb0cf49135bc1e0"
+    },
+    "aimdk_msgs/interaction/msg/PlayTtsRequest.msg": {
+      "git_blob_sha": "33bd29fc6b3210e6b5c05163678c614d45023dd8",
+      "sha256": "53aa9453e2cfc3d99379c98217b87842fac70ed01a208291bfee3d711d6bcfb5"
+    },
+    "aimdk_msgs/interaction/msg/PlayTtsResponse.msg": {
+      "git_blob_sha": "93409862f85ab72389cb53431e86fb7d3d08b542",
+      "sha256": "b3c4243cad8cdab1173a389520e8a55aa30c2889e364ed5b11dbd19489d79105"
+    },
+    "aimdk_msgs/interaction/msg/TokenCommon.msg": {
+      "git_blob_sha": "96cd9952c760a099d62b55d5fef40607e685afe8",
+      "sha256": "d3d8fafeb6a582f8303c7906a7b26f9bc480ae73d027ad5cc40e0789c4f6bb41"
+    },
+    "aimdk_msgs/interaction/msg/TtsPriorityLevel.msg": {
+      "git_blob_sha": "e7b54636f7e0c44323feb421bb46279ab4b10bb1",
+      "sha256": "50fe189268611105477656baf15601bfda3977a530633c80565ecc6bd10febd6"
+    },
+    "aimdk_msgs/interaction/srv/PlayEmotion.srv": {
+      "git_blob_sha": "4065b7f878f96cce9ca299d18f0f4a1d1da76bef",
+      "sha256": "df86c2da7e46cab230e1f54871110f786a0a473126e0fe385c994a4e5342aca6"
+    },
+    "aimdk_msgs/interaction/srv/PlayTts.srv": {
+      "git_blob_sha": "d905aaadd8307b5d42d89ea6cf564dba0ce85790",
+      "sha256": "da8f4e42d786198194ea4f6dbde6fc9318ad4981d990595a45eec9a407a305ff"
+    },
+    "aimdk_msgs/interaction/srv/ShutdownTask.srv": {
+      "git_blob_sha": "80b20bec7efd620ed430c8a11998087e226aa3ad",
+      "sha256": "b877720281f75cb2286a842de4d09c7756ff56fbc7885170269d27ae8587d45b"
+    },
+    "aimdk_msgs/mc/action/McTaskSource.msg": {
+      "git_blob_sha": "8d64627cc1973d6e35c4b6a3e13c445ca12fb9bf",
+      "sha256": "dbc97d9d723a27a2a1d789b3d86147cf617faaea926d3955caa625b91a59a59c"
+    },
+    "aimdk_msgs/mc/motion/McControlArea.msg": {
+      "git_blob_sha": "4c8b029ef11575396891525e27f4a36945fddbed",
+      "sha256": "7ecef6b3c48d43b19c9f5da8ae28613e42890a1bd579d91fcdd9214192e7ac8d"
+    },
+    "aimdk_msgs/mc/motion/McPresetMotion.msg": {
+      "git_blob_sha": "2a1b323a6778c78d78a7a5b9dd630330322b3ff3",
+      "sha256": "e64cf541733c93b0ad20f297e1f37d6c14fcb435822d188a8269d819eb57a2d9"
+    },
+    "aimdk_msgs/mc/motion/srv/SetMcMotion.srv": {
+      "git_blob_sha": "336d34d616618a0e82b168f0e1d519953a09c0e3",
+      "sha256": "15b603c2cf9eaadefb18f75fe1b05b57b3a5c8b3e8d7beb4c671bd6e5a768e6a"
+    },
+    "aimdk_msgs/mc/motion/srv/SetMcPresetMotion.srv": {
+      "git_blob_sha": "d70189b0666f83849682f1952a99b196653bc54f",
+      "sha256": "b7459cb499bb4f12848b5ce9bcb3e2714f644c8e33f088c51844445e4b3a50bb"
+    },
+    "aimdk_msgs/package.xml": {
+      "git_blob_sha": "bf7f4c00193671b727b7b29b1c6337b691983700",
+      "sha256": "b7aafc729b21e1262c3e69fada744853a1331affb9ad4de0d375d10456cbaf04"
+    }
+  }
+}
