@@ -1,6 +1,6 @@
 # 验证记录（2026-10-30）
 
-交付目录 `/data/kk/embodied_edge/q1`。用户已指定真机交互采用宿主机原生运行；本页Docker结果仅是此前离线测试记录，不代表原生宿主机已完成ROS安装或设备联调。没有本体、手柄或 Pico 设备；以下是软件、模拟输入和隔离通信验证，不能代替实机测试。没有 git 提交。
+以下为2026-10-30的历史验证记录，当时交付目录为 `/data/kk/embodied_edge/q1`。当前代码位于 `/home/kyoka/code/embodied_edge/q1`，容器部署方式见README。历史结果不代表当前主机或设备已经完成联调；软件、模拟输入和隔离通信验证不能代替实机测试。
 
 ## 已运行
 
@@ -52,3 +52,25 @@ python3 scripts/check_browser.py http://127.0.0.1:8766/
 - 实机平衡、站立、步态、上肢20/3增益、自碰撞、物理急停与原厂接管/恢复；UI与IK不提供这些结果的保证。
 - 上肢远离HOME时软件停止不会自动切回行走；保守保持和原厂遥控器接管流程需要现场验证。
 - SuperMimic推理与低层真机执行尚未接入；本版本没有相机视频、手指控制或全身动捕。
+
+
+## 2026-11-01：ARM64 Humble 开发容器
+
+当前目录 `/home/kyoka/code/embodied_edge/q1`。实际构建镜像 `embodied-q1:humble`，架构arm64；Ubuntu22.04、Python3.10.12，使用官方Humble基础镜像。构建通过现有终端代理参数完成，没有修改Docker daemon配置。
+
+|验证|本次结果|
+|---|---|
+|SDK构建|完整vendored aimdk_msgs编译通过，产物 `/opt/q1_ros/install/aimdk_msgs`，约1分21秒|
+|完整Python测试|在镜像内、`--network none`下75/75通过；含新增Shell分发和旧CLI参数兼容测试|
+|入口回归|修改前普通Bash命令被错误转成Q1参数，新增测试失败；修改后输出和退出码保持测试通过|
+|SDK / ROS依赖|Python3.10.12下numpy、rclpy、aimdk_msgs可用；保留apt NumPy1.21.5；pip check、dpkg --audit通过|
+|真实ROS2 DDS回环|独立`--network none`容器、域117、ROS_LOCALHOST_ONLY=1：真实DDS与生成类型支持、只读启动、控制源仲裁、速度心跳、完整上肢流、停止释放和反馈断流看门狗全部通过|
+|默认启动|实际执行scripts/run-docker.sh，宿主机8766端口可读取Mock状态，enabled=false，速度为零|
+|代码挂载|inspect确认当前q1目录读写挂载到`/opt/q1`，SDK产物保持可用|
+|共享网络|inspect为Network=host；容器与宿主机`/proc/self/ns/net`相同|
+|环境变量|传入的ROS_DOMAIN_ID=117得到保留，ROS_LOCALHOST_ONLY=0，RMW_IMPLEMENTATION=rmw_fastrtps_cpp|
+|交互Shell|docker exec打开Bash自动加载Humble与SDK；从/tmp启动脚本执行Bash也通过|
+|基础工具|cc/c++、cmake、git、colcon、curl、ping、ip、ps、less、vi均可调用|
+|独立代码审查|未发现Critical、Important或Minor问题|
+
+验证结束后已退出并删除本次Mock容器，保留构建镜像。未进行实机Q1/Pico联调，未在ARM64上安装可选Pico绑定，也未运行x86_64镜像。PyPI元数据确认xrobotoolkit-sdk1.1.0提供ARM64 wheel且不声明额外依赖；实际Pico安装与设备运行仍须单独验证。

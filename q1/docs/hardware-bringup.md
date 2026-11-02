@@ -17,7 +17,7 @@ flowchart LR
   Robot -->|关节状态与模式/所有权| Core
 ```
 
-真机控制程序直接运行在宿主机，不使用Docker。控制电脑采用 Ubuntu22.04、ROS2 Humble、系统 Python3.10。台式x86_64或Orin/aarch64是绑定支持的平台；此前离线依赖验证只覆盖x86_64，现场宿主机仍需检查。Pico PC Service 与采集程序先放同一台控制电脑，头显与服务处于可互通网络；不要默认公网训练服务器能直接发现现场机器人。
+推荐通过项目Docker镜像提供 Ubuntu22.04、ROS2 Humble 和 Python3.10，Linux控制主机运行 `scripts/run-docker.sh`，代码挂载到 `/opt/q1` 并共享主机网络。已有原生Humble环境也可按README备选流程运行。台式x86_64或Orin/aarch64是Pico绑定支持的平台，现场仍需检查。需要Pico时以 `WITH_PICO=1` 构建镜像，PC Service先在同一控制主机运行，头显与服务处于可互通网络；绑定安装、容器环境和实机交互需要分别验证。
 
 保留 Q1 原厂 MC、原厂遥控器和独立物理急停。首版只订阅 HAL 状态，绝不发布 HAL 关节命令，也不关闭 MC。网页默认127.0.0.1；远程查看使用 SSH 转发。原生Pico遥操以Pico流和Grip作为运行保持条件；网页失焦会尝试发送停止，但网页网络断开不能替代Pico断流或独立急停。主机白名单与同源 token 用于阻止跨站误调用，不构成公网账号认证，**不要将真实控制台发布到公网**。
 
@@ -30,16 +30,14 @@ flowchart LR
 
 ## 2. 先做只读检查
 
-先按 README“宿主机原生连接本体和 Pico”安装依赖、编译官方消息包，并用系统Python3.10建立 `.venv-ros`（带 `--system-site-packages`）。每个新终端先准备原生环境：
+先按 README“Docker 开发与运行”构建镜像。在宿主机设置与本体一致的 `ROS_DOMAIN_ID`，然后进入容器：
 
 ```bash
-cd /data/kk/embodied_edge/q1
-source /opt/ros/humble/setup.bash
-source .ros_ws/install/setup.bash
-source .venv-ros/bin/activate
+cd /home/kyoka/code/embodied_edge/q1
+sudo --preserve-env=ROS_DOMAIN_ID ./scripts/run-docker.sh bash
 ```
 
-下文的 `python3` 均指此虚拟环境中的Python3.10，不经过容器。与机器人同一 DDS 域和可互通网卡，PC与本体时间同步；消息头必须非零、持续推进且与ROS时钟相近，否则不能使能。默认 FastDDS 由官方消息包环境钩子启用，保留其UDP配置，排查网卡、防火墙和缓冲区时参照上游说明。
+后续ROS和 `python3` 命令均在容器内执行，工作目录为 `/opt/q1`，Humble与SDK环境已自动加载。使用原生部署时，先按README加载 `.ros_ws` 与 `.venv-ros`。与机器人同一 DDS 域和可互通网卡，PC与本体时间同步；消息头必须非零、持续推进且与ROS时钟相近，否则不能使能。默认 FastDDS 由官方消息包环境钩子启用，保留其UDP配置，排查网卡、防火墙和缓冲区时参照上游说明。
 
 ```bash
 python3 -m q1_edge --backend ros2 --diagnose

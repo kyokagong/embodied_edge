@@ -7,7 +7,7 @@
 ## 现在先打开界面
 
 ```bash
-cd /data/kk/embodied_edge/q1
+cd /home/kyoka/code/embodied_edge/q1
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m q1_edge
@@ -43,9 +43,68 @@ ssh -N -L 8766:127.0.0.1:8766 用户名@运行机器IP
 
 速度默认上限：前后0.3m/s、横向0.2m/s、转向0.4rad/s；SDK 小非零命令存在0.2下限约束，死区外会达到该最小值，**不是从任意小速度连续起步**。初次实机在原厂要求的支撑保护与空旷平地下测试。
 
-## 宿主机原生连接本体和 Pico
+## Docker 开发与运行（推荐）
 
-真机交互采用 Ubuntu22.04 + ROS2 Humble + 系统 Python3.10，直接运行在控制电脑上，不使用Docker。Q1 Edge、官方SDK和Pico PC Service都在宿主机运行。先读 [真机联调手册](docs/hardware-bringup.md)，按“只读检查 → 原厂平衡站立 → 小幅行走 → Pico 数据 → 上肢遥操”顺序验证。
+Linux 宿主机安装 Docker Engine 即可。镜像使用 Ubuntu22.04 / ROS2 Humble / Python3.10，自动匹配 ARM64 或 x86_64；宿主机无需安装 ROS 或 Compose。
+
+```bash
+cd /home/kyoka/code/embodied_edge/q1
+sudo docker build --network host -t embodied-q1:humble .
+# 先检查镜像内依赖；此命令不创建 ROS 节点。
+sudo ./scripts/run-docker.sh --backend ros2 --diagnose
+# 默认运行 Mock 控制台，浏览器访问 http://127.0.0.1:8766/
+sudo ./scripts/run-docker.sh
+```
+
+镜像安装编译器、CMake、Git、colcon、Python开发工具、curl、ping、ip、ps、less和vi，并编译 `vendor/primebot_sdk/aimdk_msgs`。这是本项目 Python ROS2 后端使用的 SDK 消息/服务包。
+
+启动脚本将当前 `q1` 目录读写挂载到 `/opt/q1`，使用 `--network host` 共享主机网卡、IP和UDP端口，无需 `-p` 映射。SDK编译产物位于独立的 `/opt/q1_ros/install`，不会被代码挂载覆盖；代码和配置修改直接可见，修改消息定义或镜像依赖后需重新构建镜像。FastDDS和SDK环境会自动加载。
+
+需要开发Shell时，先退出当前Mock容器，再执行：
+
+```bash
+sudo --preserve-env=ROS_DOMAIN_ID ./scripts/run-docker.sh bash
+# 以下在容器内执行：
+echo "$ROS_DISTRO"                 # humble
+ros2 pkg prefix aimdk_msgs
+python3 -m q1_edge --backend ros2 --diagnose
+```
+
+容器名为 `embodied-q1`，同时只启动一个实例。另一个终端可用 `sudo docker exec -it embodied-q1 bash` 进入同一容器。退出启动进程会删除临时容器，镜像、宿主机代码和挂载目录中的日志保留。
+
+连接本体前，将宿主机 `ROS_DOMAIN_ID` 设置为本体实际域号，再使用上面的 `--preserve-env=ROS_DOMAIN_ID` 命令启动；未设置时脚本使用ROS默认域0。脚本设置 `ROS_LOCALHOST_ONLY=0` 以允许跨主机DDS通信。本体网卡、防火墙、时钟和UDP缓冲区仍按[联调手册](docs/hardware-bringup.md)核对。
+
+进入容器后，按手册完成只读检查；真实后端仍需显式授权、页面校准和使能：
+
+```bash
+# 容器内；保留已有本地配置。
+test -e config/local.json || cp config/default.json config/local.json
+mkdir -p logs
+python3 -m q1_edge --backend ros2 --enable-hardware \
+  --config config/local.json --trace logs/hardware.jsonl
+```
+
+Pico绑定为可选依赖，需要时重新构建：
+
+```bash
+sudo docker build --network host --build-arg WITH_PICO=1 -t embodied-q1:humble .
+```
+
+随后按手册先验证 `--backend mock --pico xrobotoolkit`，再进入真实遥操；绑定可导入不表示头显、PC Service及实机已经联调通过。
+
+如果构建下载依赖需要当前终端代理，可传递Docker预定义代理参数；本机回环代理需要构建时的 `--network host`：
+
+```bash
+sudo --preserve-env=HTTP_PROXY,HTTPS_PROXY,http_proxy,https_proxy docker build \
+  --network host --build-arg HTTP_PROXY --build-arg HTTPS_PROXY \
+  --build-arg http_proxy --build-arg https_proxy -t embodied-q1:humble .
+```
+
+这些参数用于镜像构建，不修改Docker服务的全局代理。若Docker服务本身无法访问Docker Hub，需先将官方基础镜像导入本机镜像缓存。
+
+## 原生部署（已有 Ubuntu22.04 / Humble 时可选）
+
+已有 Ubuntu22.04 + ROS2 Humble + 系统 Python3.10 的控制电脑也可直接运行。以下为原生部署步骤；采用上面的Docker流程时可跳过这一节。先读 [真机联调手册](docs/hardware-bringup.md)，按“只读检查 → 原厂平衡站立 → 小幅行走 → Pico 数据 → 上肢遥操”顺序验证。
 
 首次安装：先按ROS官方说明配置Humble软件源，在未激活Conda的终端执行。以下命令用于实际控制电脑，不要求在训练服务器安装ROS。
 
@@ -55,7 +114,7 @@ sudo apt-get install -y ros-humble-ros-base ros-humble-rosidl-default-generators
   ros-humble-geometry-msgs ros-humble-sensor-msgs ros-humble-nav-msgs \
   python3-colcon-common-extensions python3-venv python3-numpy
 
-cd /data/kk/embodied_edge/q1
+cd /home/kyoka/code/embodied_edge/q1
 source /opt/ros/humble/setup.bash
 mkdir -p .ros_ws
 cd .ros_ws
@@ -76,7 +135,7 @@ mkdir -p logs
 `.venv`用于无设备界面，`.venv-ros`用于真实ROS环境；后者必须用系统Python3.10创建，不能从Conda Python创建。编译消息包也固定使用系统Python。首次安装完成后，每个新终端执行：
 
 ```bash
-cd /data/kk/embodied_edge/q1
+cd /home/kyoka/code/embodied_edge/q1
 source /opt/ros/humble/setup.bash
 source .ros_ws/install/setup.bash
 .venv-ros/bin/python -m q1_edge --backend ros2 --diagnose
@@ -101,14 +160,16 @@ ROS_DOMAIN_ID使用本体实际配置，不要猜测域号。先启动宿主机�
 
 ## 软件自检
 
-在已配置的原生虚拟环境执行：
+Python测试可在容器中执行；前端自检在安装Node.js的宿主机执行：
 
 ```bash
-.venv-ros/bin/python -m unittest discover -s tests -v
+sudo ./scripts/run-docker.sh python3 -m unittest discover -s tests -v
 node tests/check_ui.cjs
 ```
 
-以下Docker命令仅保留为历史离线DDS回环自检，假MC节点不能连接本体网络；它不是本体部署或启动方式。真机流程不需要构建或启动镜像。
+使用原生部署时，将第一条命令替换为 `.venv-ros/bin/python -m unittest discover -s tests -v`。
+
+以下命令用于隔离的DDS回环自检。假MC节点不能连接本体网络，必须保留 `--network none` 和本地ROS域设置，不要通过共享主机网络的启动脚本运行此项测试。
 
 ```bash
 docker run --rm --network none -e ROS_DOMAIN_ID=117 -e ROS_LOCALHOST_ONLY=1 \

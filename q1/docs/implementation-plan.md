@@ -3,7 +3,7 @@
 Goal: runnable UI+mock and real SDK/Pico adapters, ready for next-day hardware integration, no git commits.
 Architecture: shared pure control logic, nonblocking native-MC adapter, bounded upper-body IK, local HTTP dashboard.
 Tech: Python3.10+, numpy, optional ROS2 Humble/aimdk_msgs and xrobotoolkit_sdk.
-Deployment: host-native Ubuntu22.04 / ROS2 Humble for all physical interaction; Docker only for offline verification.
+Deployment (updated 2026-11-01): Docker supplies Ubuntu22.04 / ROS2 Humble, compiled SDK, code bind mount and host networking; native Humble remains an alternative. Fake-MC DDS verification stays isolated.
 Spec: design.md; interfaces: interfaces.md.
 
 ## Global constraints
