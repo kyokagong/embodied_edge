@@ -1,9 +1,12 @@
 """Local operator API: same-origin JSON commands, token, and bounded bodies."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
 from pathlib import Path
 import secrets
 from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
 
 WEB = Path(__file__).with_name('web')
 
@@ -15,7 +18,9 @@ def create_server(controller, host='127.0.0.1', port=8766, allowed_hosts=None):
         hosts.add(host)
 
     class Handler(BaseHTTPRequestHandler):
-        protocol_version = 'HTTP/1.0'
+        protocol_version = 'HTTP/1.1'
+        timeout = 3
+        disable_nagle_algorithm = True
 
         def log_message(self, *_):
             pass
@@ -24,14 +29,21 @@ def create_server(controller, host='127.0.0.1', port=8766, allowed_hosts=None):
             if not isinstance(payload, bytes):
                 payload = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
             self.send_response(status)
+            if status >= 400:
+                self.close_connection = True
+                self.send_header('Connection','close')
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(payload)))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Referrer-Policy', 'same-origin')
             self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
-            self.end_headers()
-            self.wfile.write(payload)
+            try:
+                self.end_headers()
+                self.wfile.write(payload)
+            except (BrokenPipeError,ConnectionResetError):
+                self.close_connection=True
+                logger.debug('http_response_abandoned path=%r',self.path)
 
         def _host_ok(self):
             try:
@@ -88,6 +100,7 @@ def create_server(controller, host='127.0.0.1', port=8766, allowed_hosts=None):
                 if not isinstance(data, dict):
                     raise ValueError('Request must be an object')
                 path = urlsplit(self.path).path
+                compact = path == '/api/input' and self.headers.get('X-Q1-Compact') == '1'
                 if path == '/api/action':
                     if data.get('action') not in ('stop','disable') and (
                         not isinstance(data.get('client_id'), str) or not 1 <= len(data['client_id']) <= 80
@@ -95,7 +108,7 @@ def create_server(controller, host='127.0.0.1', port=8766, allowed_hosts=None):
                         raise ValueError('Action requires a valid client_id')
                     result = controller.action(data.get('action'), client_id=data.get('client_id'))
                 elif path == '/api/input':
-                    result = controller.input(data)
+                    result = controller.input(data,compact=True) if compact else controller.input(data)
                 elif path == '/api/pico':
                     if data.get('source','simulator') != 'simulator':
                         raise ValueError('Native Pico input must come from the local XRobo reader')
@@ -104,13 +117,15 @@ def create_server(controller, host='127.0.0.1', port=8766, allowed_hosts=None):
                 else:
                     self._send(404, {'ok':False,'error':'Not found'})
                     return
-                self._send(200, {'ok':True,'state':result})
+                self._send(200, {'ok':True,'ack':result} if compact else {'ok':True,'state':result})
             except (ValueError, TypeError, KeyError, UnicodeError, TimeoutError, RuntimeError) as error:
+                logger.warning('api_rejected path=%r error=%s', self.path, error)
                 self._send(400, {'ok':False,'error':str(error),'state':controller.state()})
 
     class Server(ThreadingHTTPServer):
         daemon_threads = True
         allow_reuse_address = True
+        request_queue_size = 32
 
     server = Server((host, port), Handler)
     server.api_token = token

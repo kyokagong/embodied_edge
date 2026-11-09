@@ -11,3 +11,8 @@ config/local.json
 logs/
 
 .venv-ros/
+
+/artifacts/
+/deploy/supermimic/private/
+
+/cross/

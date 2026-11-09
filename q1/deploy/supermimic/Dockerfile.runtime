@@ -1,0 +1,8 @@
+FROM ros:humble-ros-base-jammy@sha256:d9bcf2e6f72df127fdee07048c2e87b1b4b9a59a74af0592f4489fc2844aa855
+# Build context is artifacts/supermimic/mini-runtime, containing only verified runtime files.
+COPY . /opt/q1
+WORKDIR /opt/q1
+RUN sha256sum -c SHA256SUMS >/dev/null && /opt/q1/run q1-guard-net --help >/dev/null
+ENV ORT_DYLIB_PATH=/opt/q1/ort/libonnxruntime.so.1.23.2
+ENTRYPOINT ["/opt/q1/run"]
+CMD ["--help"]

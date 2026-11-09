@@ -72,5 +72,9 @@
     "command_timeout_s": 0.25,
     "service_timeout_s": 3.0,
     "transition_timeout_s": 20.0
+  },
+  "gamepad": {
+    "rb_toggle_enabled": true,
+    "rb_hold_s": 1.0
   }
 }

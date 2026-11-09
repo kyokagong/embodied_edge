@@ -29,3 +29,8 @@ class EntrypointTests(unittest.TestCase):
         result = self.run_entrypoint('--backend', 'mock', '--diagnose')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['backend'], 'mock')
+
+    def test_log_options_preserve_machine_readable_diagnostics(self):
+        result = self.run_entrypoint('--backend', 'mock', '--diagnose', '--log-level', 'DEBUG')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['backend'], 'mock')

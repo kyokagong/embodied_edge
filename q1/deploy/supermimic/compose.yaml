@@ -1,0 +1,31 @@
+services:
+  guard-client:
+    image: ${Q1_SUPERMIMIC_IMAGE:-embodied-q1:supermimic}
+    network_mode: host
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ${Q1_PROFILE}:/opt/q1/config/hardware.json:ro
+      - ${Q1_RUN_DIR}:/run/q1-supermimic
+      - ${Q1_NETWORK_KEY}:/run/network-key:ro
+    command: [q1-guard-net, --mode, client, --bind, "${Q1_MINI_IP:-0.0.0.0}:0", --peer, "${Q1_ROBOT_PEER:-192.168.54.41:18766}", --socket, /run/q1-supermimic/bridge.sock, --key-file, /run/network-key, --hardware-profile, /opt/q1/config/hardware.json]
+    stop_grace_period: 3s
+  edge:
+    image: ${Q1_SUPERMIMIC_IMAGE:-embodied-q1:supermimic}
+    network_mode: host
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      ORT_DYLIB_PATH: /opt/q1/ort/libonnxruntime.so.1.23.2
+    volumes:
+      - ${Q1_PROFILE}:/opt/q1/config/hardware.json:ro
+      - ${Q1_MODEL_DIR}:/opt/q1/model:ro
+      - ${Q1_RUN_DIR}:/run/q1-supermimic
+      - ${Q1_OPERATOR_KEY}:/run/operator-key:ro
+    command: [--backend, ros2, --controller, supermimic, --model-dir, /opt/q1/model, --hardware-profile, /opt/q1/config/hardware.json, --operator-key-file, /run/operator-key, --host, 0.0.0.0, --allow-host, "${Q1_UI_HOST}", --port, "8768"]
+    depends_on: [guard-client]
+    stop_grace_period: 3s

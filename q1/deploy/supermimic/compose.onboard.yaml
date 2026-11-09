@@ -1,0 +1,10 @@
+services:
+  console:
+    image: ${Q1_SUPERMIMIC_IMAGE:-embodied-q1:supermimic}
+    network_mode: host
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [q1-console-proxy, --bind, "0.0.0.0:8768", --upstream, "${Q1_CONSOLE_UPSTREAM:-192.168.54.41:8768}"]
+    stop_grace_period: 3s

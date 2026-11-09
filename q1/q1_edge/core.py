@@ -2,9 +2,12 @@
 from collections import deque
 import copy
 import math
+import logging
 import threading
 import time
 
+
+logger = logging.getLogger(__name__)
 
 def _numbers(values, count, label):
     if not isinstance(values, (list, tuple)) or len(values) != count or any(
@@ -43,11 +46,21 @@ class Controller:
         self._owner = None
         self._source = None
         self._seq = -1
+        self._last_input_log = -math.inf
         self._received = None
         self._axes = [0.]*4
         self._offsets = [0.]*4
         self._buttons = [False]*17
         self._buttons_seen = False
+        self._motion_latched = False
+        self._rb_held_since = None
+        self._rb_toggle_fired = False
+        self._rb_wait_release = True
+        self._last_input_gap_ms = None
+        self._max_input_gap_ms = 0.
+        self._last_gap_warning_at = -math.inf
+        self._client_telemetry = {}
+        self._last_stop_context = None
         self._pico = None
         self._pico_time = self._pico_processed_time = None
         self._pico_source = None
@@ -65,6 +78,8 @@ class Controller:
 
     def _log(self, event):
         self.events.append({'time': time.strftime('%H:%M:%S'), 'event': str(event)})
+        logger.info('controller_event mode=%s enabled=%s calibrated=%s event=%s',
+                    self.mode, self.enabled, self.calibrated, event)
 
     def _input_fresh(self, now):
         return self._received is not None and 0 <= now-self._received <= self.config['input_timeout_s']
@@ -72,16 +87,64 @@ class Controller:
     def _pico_fresh(self, now):
         return self._pico_time is not None and 0 <= now-self._pico_time <= self.config['pico_timeout_s']
 
+    def _latch_mode(self):
+        return (self._source in ('browser_gamepad','linux_gamepad')
+                and self.config.get('gamepad',{}).get('rb_toggle_enabled',True))
+
     def _deadman(self):
+        if self._latch_mode():
+            return self._motion_latched
         return bool(self._buttons[self.config['buttons']['deadman']])
+
+    def _clear_motion_latch(self):
+        self._motion_latched = False
+        self._rb_held_since = None
+        self._rb_toggle_fired = False
+        self._rb_wait_release = True
+
+    def _update_rb_toggle(self, now):
+        if not self._latch_mode():
+            return
+        held = self._buttons[self.config['buttons']['deadman']]
+        if not held:
+            self._rb_held_since = None
+            self._rb_toggle_fired = False
+            self._rb_wait_release = False
+            return
+        if self._buttons[self.config['buttons']['stop']]:
+            self._clear_motion_latch()
+            return
+        if not self._buttons_seen:
+            self._rb_wait_release = True
+        if self._rb_wait_release or self._rb_toggle_fired:
+            return
+        if self._rb_held_since is None:
+            self._rb_held_since = now
+        if now-self._rb_held_since < self.config.get('gamepad',{}).get('rb_hold_s',1.):
+            return
+        self._rb_toggle_fired = True
+        action = 'disable' if self._motion_latched else 'enable'
+        logger.info('rb_long_press action=%s client=%s held_ms=%.1f',action,self._owner,(now-self._rb_held_since)*1000)
+        try:
+            self.action(action,client_id=self._owner)
+        except (ValueError,RuntimeError) as error:
+            self.status=str(error)
+            self._log(str(error))
+
+    def _input_ack(self):
+        return {'sequence':self._seq}
 
     def _zero(self):
         self._velocity = dict(forward=0., lateral=0., angular=0.)
         self.backend.set_velocity(0., 0., 0.)
 
     def _trip(self, message, invalidate=True):
-        if self.enabled or self.mode != 'fault':
+        first_stop = self.enabled or self.mode != 'fault'
+        if first_stop:
             self._log(message)
+        input_age = None if self._received is None else round(max(0.,self.clock()-self._received)*1000,1)
+        self._clear_motion_latch()
+        self._buttons_seen = False
         self.enabled = False
         if invalidate:
             self.calibrated = self._pico_calibrated = False
@@ -93,8 +156,17 @@ class Controller:
             self.backend.stop()
         except Exception as error:
             self._log('停止通信失败，需独立物理急停／原厂遥控器接管：' + str(error))
+        if first_stop:
+            try: snapshot=self.backend.snapshot()
+            except Exception: snapshot={}
+            self._last_stop_context=dict(reason=str(message),input_age_ms=input_age,sequence=self._seq,
+                last_gap_ms=self._last_input_gap_ms,max_gap_ms=self._max_input_gap_ms,
+                joints_age_s=snapshot.get('joints_age_s'),action_age_s=snapshot.get('action_age_s'),
+                owner_age_s=snapshot.get('owner_age_s'),client=dict(self._client_telemetry))
+            logger.warning('stop_context input_age_ms=%s sequence=%s threshold_ms=%.1f context=%s',
+                           input_age,self._seq,self.config['input_timeout_s']*1000,self._last_stop_context)
 
-    def input(self, payload, now=None):
+    def input(self, payload, now=None, compact=False):
         with self.lock:
             now = self.clock() if now is None else now
             if not isinstance(payload, dict):
@@ -121,7 +193,7 @@ class Controller:
             same = client == self._owner and source == self._source
             # An absent pad is not a controller; it must not revoke standalone Pico calibration.
             if not connected and not same:
-                return self.state()
+                return self._input_ack() if compact else self.state()
             if not same and self._owner and self._input_fresh(now):
                 raise ValueError('另一控制页面正在持有输入，请先停止或等待输入过期')
             if same and seq <= self._seq:
@@ -130,13 +202,24 @@ class Controller:
                 if self.enabled:
                     self._trip('控制输入切换，需要重新校准和使能')
                 self.calibrated = self._pico_calibrated = False
+                self._clear_motion_latch()
+                self._last_input_gap_ms = None
+                self._max_input_gap_ms = 0.
+                self._client_telemetry = {}
                 self._buttons_seen = False
                 self._seq = -1
                 self._owner, self._source = client, source
+            if connected != (self._received is not None):
+                logger.info('input_connection source=%s client=%s connected=%s sequence=%s', source, client, connected, seq)
             self._seq = seq
             previous = self._buttons
             self._axes, self._buttons = axes, buttons
+            if buttons != previous:
+                logger.info('input_buttons source=%s client=%s sequence=%s pressed=%s axes=%s deadman=%s initial=%s',
+                            source, client, seq, [i for i, value in enumerate(buttons) if value], axes,
+                            self._deadman(), not self._buttons_seen)
             if not connected:
+                self._clear_motion_latch()
                 was_connected = self._received is not None
                 self._received = None
                 self._buttons_seen = False
@@ -145,10 +228,28 @@ class Controller:
                     self.calibrated = self._pico_calibrated = False
                 if self.enabled and was_connected:
                     self._trip('手柄断开，已停止；重连后需重新校准和使能')
-                return self.state()
-            if self._received is not None and not self._input_fresh(now) and self.enabled:
-                self._trip('输入曾过期，需重新校准和使能')
+                return self._input_ack() if compact else self.state()
+            telemetry=payload.get('telemetry')
+            if isinstance(telemetry,dict):
+                self._client_telemetry={key:value for key,value in telemetry.items()
+                    if key in ('rtt_ms','max_rtt_ms','timeouts','errors','send_gap_ms','skipped')
+                    and type(value) in (int,float) and math.isfinite(value) and 0 <= value <= 1e9}
+            if self._received is not None:
+                gap=max(0.,now-self._received)*1000
+                self._last_input_gap_ms=round(gap,1)
+                self._max_input_gap_ms=max(self._max_input_gap_ms,self._last_input_gap_ms)
+                if gap >= self.config['input_timeout_s']*800 and now-self._last_gap_warning_at >= 1.:
+                    logger.warning('input_gap source=%s client=%s sequence=%s gap_ms=%.1f threshold_ms=%.1f telemetry=%s',
+                                   source,client,seq,gap,self.config['input_timeout_s']*1000,self._client_telemetry)
+                    self._last_gap_warning_at=now
+                if not self._input_fresh(now):
+                    if self.enabled:self._trip('输入曾过期，需重新校准和使能')
+                    else:self._clear_motion_latch()
             self._received = now
+            if now-self._last_input_log >= 1.:
+                logger.debug('input_sample source=%s client=%s sequence=%s axes=%s deadman=%s mode=%s',
+                             source, client, seq, axes, self._deadman(), self.mode)
+                self._last_input_log = now
             if self._buttons_seen:
                 stop = self.config['buttons']['stop']
                 actions = ('stop',) if buttons[stop] else ('calibrate','enable','stand','walk','teleop')
@@ -160,10 +261,13 @@ class Controller:
                         except ValueError as error:
                             self.status = str(error)
                             self._log(str(error))
-            self._buttons_seen = True
+            self._update_rb_toggle(now)
+            # A stop inside this frame must survive until a new neutral release.
+            if not any(buttons) and all(abs(v) <= self.config['neutral_threshold'] for v in axes):
+                self._buttons_seen = True
             if not self._deadman():
                 self._zero()
-            return self.state()
+            return self._input_ack() if compact else self.state()
 
     def pico_frame(self, frame, source='simulator', now=None):
         with self.lock:
@@ -206,11 +310,18 @@ class Controller:
     def action(self, name, client_id=None):
         with self.lock:
             now = self.clock()
+            logger.info('control_action action=%s client=%s mode=%s enabled=%s calibrated=%s input_fresh=%s deadman=%s axes=%s offsets=%s',
+                        name, client_id, self.mode, self.enabled, self.calibrated, self._input_fresh(now),
+                        self._deadman(), self._axes, self._offsets)
             if name not in ('enable','disable','calibrate','stand','walk','teleop','stop','clear_fault'):
                 raise ValueError('Unknown action')
             if name not in ('stop','disable') and client_id and self._owner and client_id != self._owner and self._input_fresh(now):
                 raise ValueError('操作页面未持有控制输入')
             if name in ('stop','disable'):
+                self._clear_motion_latch()
+                self._buttons_seen = False
+                if name == 'stop':
+                    self.calibrated = self._pico_calibrated = False
                 self.enabled = False
                 self.mode, self.status = 'idle', '已停止输出，保留原厂平衡控制'
                 self._pico_gripping = False
@@ -230,7 +341,7 @@ class Controller:
                 fresh_pico = self._pico_fresh(now)
                 if not fresh_pad and not fresh_pico:
                     raise ValueError('没有新鲜的手柄或 Pico 输入')
-                if fresh_pad and (self._deadman() or any(abs(v) > self.config['neutral_threshold'] for v in self._axes)):
+                if fresh_pad and (self._buttons[self.config['buttons']['deadman']] or self._deadman() or any(abs(v) > self.config['neutral_threshold'] for v in self._axes)):
                     raise ValueError('校准前请松开使能保持键，并让摇杆回到中位')
                 if fresh_pico and (self._pico['left_grip'] >= .7 or self._pico['right_grip'] >= .7):
                     raise ValueError('Pico 校准前请松开双手握持键')
@@ -244,6 +355,10 @@ class Controller:
                 self.status = '已校准摇杆中位／Pico 参考坐标；未改动电机零位'
                 self._log(self.status)
             elif name == 'enable':
+                if self.enabled:
+                    return self.state()
+                if self._latch_mode() and not self._buttons_seen:
+                    raise ValueError('请先松开所有按键并让摇杆回中，再重新使能')
                 if self.mode == 'fault':
                     raise ValueError('先清除故障并重新校准')
                 if not self.calibrated or not (self._input_fresh(now) or self._pico_fresh(now)):
@@ -257,6 +372,10 @@ class Controller:
                 self.backend.enable()
                 self.backend.request_mode('stand')
                 self.enabled, self.mode = True, 'stand'
+                if self._latch_mode():
+                    self._motion_latched=True
+                    self._rb_held_since=None
+                    self._rb_wait_release=bool(self._buttons[self.config['buttons']['deadman']])
                 self._source_was_active = False
                 self.status = '已请求使能，等待原厂运控就绪'
                 self._log(self.status)
@@ -310,13 +429,16 @@ class Controller:
                     self.status = '等待运控模式确认：' + expected
                     return
                 self.status = {'walk':'行走模式：按住保持键才发送速度','stand':'平衡站立：零速度','teleop':'Pico 遥操：双手握持才跟随'}[self.mode]
-                if self.mode == 'walk' and self._input_fresh(now) and self._deadman() and snap.get('source_active'):
+                if self.mode == 'walk' and self._input_fresh(now) and self._deadman() and (snap.get('source_active') or snap.get('source_can_acquire')):
                     a = [max(-1.,min(1.,v-o)) for v,o in zip(self._axes,self._offsets)]
                     v = self.config['velocity']
                     self._velocity = dict(forward=self._axis_velocity(-a[1],v['max_forward']),lateral=self._axis_velocity(-a[0],v['max_lateral']),angular=self._axis_velocity(-a[2],v['max_angular']))
                     self.backend.set_velocity(**self._velocity)
                 else:
                     self._zero()
+                    if self.mode == 'walk' and not snap.get('source_active'):
+                        self.status = ('等待锁定使能与摇杆运动请求以获取 MC 控制权' if snap.get('source_can_acquire')
+                                       else '等待 MC 控制源空闲或新鲜的控制权反馈')
                 if self.mode == 'teleop':
                     if not snap.get('source_active'):
                         self.status = '等待已注册输入源获得控制权'
@@ -352,7 +474,10 @@ class Controller:
             pico_status = self.retargeter.status if self.retargeter else {}
             return dict(backend=self.kind,enabled=self.enabled,calibrated=self.calibrated,mode=self.mode,status=self.status,
                 robot=self.backend.snapshot(),
-                input=dict(source=self._source,age_ms=None if self._received is None else round(max(0.,now-self._received)*1000,1),deadman=self._deadman(),client_id=self._owner),
+                input=dict(source=self._source,age_ms=None if self._received is None else round(max(0.,now-self._received)*1000,1),deadman=self._deadman(),client_id=self._owner,
+                    motion_latched=self._motion_latched,rb_hold_ms=0. if self._rb_held_since is None else round(max(0.,now-self._rb_held_since)*1000,1),
+                    link=dict(last_gap_ms=self._last_input_gap_ms,max_gap_ms=self._max_input_gap_ms,client=dict(self._client_telemetry),last_stop=copy.deepcopy(self._last_stop_context))),
+                controls=dict(rb_toggle_enabled=self.config.get('gamepad',{}).get('rb_toggle_enabled',True),rb_hold_s=self.config.get('gamepad',{}).get('rb_hold_s',1.)),
                 pico=dict(connected=self._pico_fresh(now),calibrated=self._pico_calibrated,age_ms=None if self._pico_time is None else round(max(0.,now-self._pico_time)*1000,1),source=self._pico_source,frame=copy.deepcopy(self._pico),ik_error_m=pico_status.get('error_m'),diagnostic=pico_status),
                 command=dict(velocity=dict(self._velocity),upper=dict(self._upper)),events=list(self.events),
                 limits=dict(hardware_upper_confirmed=self.config['upper']['hardware_limits_confirmed'],velocity=self.config['velocity']),

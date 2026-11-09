@@ -1,0 +1,5 @@
+{
+  "upstream": "r2r_common 0.9.7 from crates.io",
+  "original_src_lib_sha256": "2e00bbc47539e11300a91453467b51654274d39d9676f6ef0e28288c022c613e",
+  "change": "select host/target ROS prefixes in build scripts; no runtime changes"
+}

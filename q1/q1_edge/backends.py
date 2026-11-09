@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import math
+import logging
 import re
+import secrets
 import threading
 import time
 
+
+logger = logging.getLogger(__name__)
 
 UPPER_JOINT_NAMES = (
     "waist_roll_joint", "waist_yaw_joint", "left_shoulder_pitch_joint",
@@ -103,6 +107,7 @@ class Ros2Backend:
     def __init__(self, config):
         cfg = config.get("ros2", {})
         self._source = cfg.get("source_name", "edge_q1")
+        self._source_base = self._source
         self._priority = cfg.get("priority", 30)
         self._source_timeout = cfg.get("source_timeout_ms", 1000)
         if (not isinstance(self._source, str) or not re.fullmatch(r"edge_q1(?:_[A-Za-z0-9]+)*", self._source)
@@ -128,6 +133,9 @@ class Ros2Backend:
         self._ever_owned = self._stopping = self._release_attempted = False
         self._recovery_inhibited = False
         self._owner_at = self._action_at = self._joints_at = None
+        self._owner_name = None
+        self._acquisition_at = None
+        self._acquisition_timeout = min(0.25, self._command_timeout, self._feedback_timeout)
         self._action, self._action_running, self._switch_ready = "", False, False
         self._joints, self._joint_stamp = {}, 0
         self._velocity = dict(_ZERO)
@@ -139,6 +147,10 @@ class Ros2Backend:
         self._pending, self._last_poll = {}, {}
         self._last_stamp = self._sequence = 0
         self._last_output = self._last_velocity_output = 0.0
+        self._last_worker_tick = None
+        self._last_worker_gap_warning = -float('inf')
+        self._last_velocity_log = 0.0
+        self._logged_motion = False
 
         try:
             import rclpy
@@ -146,6 +158,7 @@ class Ros2Backend:
             from rclpy.executors import SingleThreadedExecutor
             from rclpy.node import Node
             from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+            from sensor_msgs.msg import JointState as StandardJointState
             import aimdk_msgs.msg as messages
             import aimdk_msgs.srv as services
         except ImportError as exc:
@@ -167,6 +180,8 @@ class Ros2Backend:
                 messages.McCustomJointCommand, "/aima/mc/custom/joint/command", best_effort)
             self._subscription = self._node.create_subscription(
                 messages.JointStateArray, "/aima/hal/joint/state", self._on_joints, best_effort)
+            self._standard_subscription = self._node.create_subscription(
+                StandardJointState, "/upper_body_joint_states", self._on_standard_joints, best_effort)
             self._clients = {name: self._node.create_client(
                 getattr(services, name), "/aimdk_5Fmsgs/srv/" + name)
                 for name in ("GetMcAction", "SetMcAction", "GetCurrentInputSource", "SetMcInputSource")}
@@ -192,6 +207,19 @@ class Ros2Backend:
     def _owns(self, now):
         return self._registered and self._source_active and self._fresh(self._owner_at, now)
 
+    def _can_acquire(self, now):
+        # This firmware establishes ownership only after nonzero velocity.
+        # GetCurrentInputSource may retain a deleted/expired owner's name.
+        # Native MC decides arbitration at our below-RC priority. Only one
+        # bounded explicit-intent attempt is permitted; never auto-reacquire
+        # after ownership loss. Controller still requires walk + RB + axes.
+        return (self._enabled and not self._fault and self._registered
+                and not self._ever_owned and not self._stopping and not self._recovery_inhibited
+                and self._fresh(self._owner_at, now)
+                and self._target == _WALK and self._ready(_WALK, now)
+                and self._waiting_action is None
+                and (self._acquisition_at is None or now-self._acquisition_at < self._acquisition_timeout))
+
     def _ready(self, action, now):
         return self._connected(now) and self._action_running and self._action == action
 
@@ -201,6 +229,26 @@ class Ros2Backend:
         self._last_stamp = ns
         stamp.sec, stamp.nanosec = divmod(ns, 10**9)
         return stamp
+
+    def _on_standard_joints(self, message):
+        # Q1 firmware also exposes upper-body feedback as sensor_msgs/JointState.
+        # Reuse the SDK path's complete-pose, timestamp and replay checks.
+        try:
+            if (len(message.name) != len(message.position)
+                    or len(set(message.name)) != len(message.name)):
+                return
+            packet = self._messages.JointStateArray()
+            packet.header.stamp = message.header.stamp
+            for name, position in zip(message.name, message.position):
+                if name in UPPER_JOINT_NAMES:
+                    if not _number(position):
+                        return
+                    joint = self._messages.JointState()
+                    joint.name, joint.position = name, position
+                    packet.joints.append(joint)
+            self._on_joints(packet)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return
 
     def _on_joints(self, message):
         try:
@@ -229,6 +277,8 @@ class Ros2Backend:
             now = time.monotonic()
             if not self._connected(now):
                 raise RuntimeError("Fresh MC and all ten measured joints required before enable")
+            if not self._owns(now) and not self._ready(_WALK, now):
+                raise RuntimeError("首次使能前，请用原厂控制器准备 BIPED_WALK_RUN / RUNNING；不自动切换或接管底层运控")
             if self._stopping or "SetMcInputSource" in self._pending:
                 raise RuntimeError("Previous source operation is still finishing")
             if self._enabled and not self._fault:
@@ -239,11 +289,16 @@ class Ros2Backend:
             self._fault = None
             self._enabled, self._ever_owned, self._release_attempted = True, False, False
             self._enabled_at = now
+            self._acquisition_at = None
             self._velocity = dict(_ZERO)
             self._velocity_at = now
             self._target = _WALK
-            self._transition_at = now
+            self._transition_at = None if self._action == _WALK and self._action_running else now
             if not self._registered:
+                # Do not mistake cached self attribution from an earlier ADD
+                # for ownership of this registration. Node name stays stable.
+                self._source = self._source_base + "_" + secrets.token_hex(6)
+                self._source_active = False
                 self._source_request(1001, now)
 
     def request_mode(self, mode):
@@ -267,9 +322,13 @@ class Ros2Backend:
         with self._lock:
             now = time.monotonic()
             if any(value.values()) and (not self._enabled or self._fault or self._target != _WALK
-                                       or not self._owns(now) or not self._ready(_WALK, now)
+                                       or not (self._owns(now) or self._can_acquire(now)) or not self._ready(_WALK, now)
                                        or self._waiting_action is not None):
                 raise RuntimeError("Velocity requires owned source and fresh native MC RUNNING feedback")
+            if any(value.values()) and not self._ever_owned and self._acquisition_at is None:
+                self._acquisition_at = now
+                logger.info('source_acquisition_start source=%s owner=%r timeout_ms=%.1f velocity_cap=0.2',
+                            self._source, self._owner_name, self._acquisition_timeout*1000)
             self._velocity, self._velocity_at = value, now
 
     def set_upper(self, positions):
@@ -304,7 +363,12 @@ class Ros2Backend:
             return {"connected": self._connected(now), "action": self._action,
                     "action_running": self._action_running and self._fresh(self._action_at, now),
                     "joints": dict(self._joints), "joints_age_s": age,
-                    "source_active": self._owns(now), "fault": self._fault,
+                    "action_age_s": None if self._action_at is None else max(0.,now-self._action_at),
+                    "owner_age_s": None if self._owner_at is None else max(0.,now-self._owner_at),
+                    "source_active": self._owns(now), "source_name": self._source, "source_owner": self._owner_name,
+                    "source_can_acquire": self._can_acquire(now),
+                    "source_acquiring": self._enabled and not self._ever_owned and self._acquisition_at is not None,
+                    "fault": self._fault,
                     "velocity": dict(self._velocity)}
 
     def _source_request(self, action, now):
@@ -326,6 +390,8 @@ class Ros2Backend:
                 self._trip(name + " service unavailable")
             return False
         try:
+            log = logger.info if name.startswith("Set") else logger.debug
+            log('rpc_request service=%s tag=%s source=%s request=%s', name, tag, self._source, request)
             self._pending[name] = (client.call_async(request), now, tag)
             return True
         except Exception as exc:
@@ -333,6 +399,9 @@ class Ros2Backend:
             return False
 
     def _trip(self, message, recover=True):
+        if self._fault is None:
+            logger.error('backend_fault source=%s registered=%s enabled=%s action=%s recovery=%s error=%s',
+                         self._source, self._registered, self._enabled, self._action, recover, message)
         self._fault = self._fault or message
         self._velocity = dict(_ZERO)
         self._enabled = False
@@ -359,11 +428,16 @@ class Ros2Backend:
                 future.cancel()
                 self._clients[name].remove_pending_request(future)
                 del self._pending[name]
+                logger.warning('rpc_timeout service=%s tag=%s source=%s elapsed_ms=%.1f',
+                               name, tag, self._source, (now-started)*1000)
                 self._trip(name + " timed out")
                 continue
             del self._pending[name]
             try:
                 response = future.result()
+                log = logger.info if name.startswith("Set") else logger.debug
+                log('rpc_response service=%s tag=%s source=%s elapsed_ms=%.1f response=%s',
+                    name, tag, self._source, (now-started)*1000, response)
                 if name == "GetMcAction":
                     if response.header.code != 0 or not response.info.action_desc:
                         raise ValueError("invalid MC action response")
@@ -376,7 +450,16 @@ class Ros2Backend:
                 else:
                     task = response.response
                     state = task.state.value
+                    log('rpc_result service=%s tag=%s code=%s state=%s reason=%s',
+                        name, tag, task.header.code, state, task.state.reason)
                     accepted = {self._messages.CommonState.SUCCESS}
+                    # Q1 source management RPCs may leave business state unset.
+                    # The official SDK checks header.code for these operations.
+                    # Only allow UNKNOWN with no reason; nonzero RPC codes and
+                    # explicit failures remain rejected. Action RPCs stay strict.
+                    if (name in ("GetCurrentInputSource", "SetMcInputSource")
+                            and task.state.reason == 0):
+                        accepted.add(self._messages.CommonState.UNKNOWN)
                     if name == "SetMcAction":
                         accepted |= {self._messages.CommonState.PENDING, self._messages.CommonState.CREATED,
                                      self._messages.CommonState.RUNNING}
@@ -391,10 +474,29 @@ class Ros2Backend:
                             self.stop()
                     elif name == "GetCurrentInputSource":
                         owned = response.input_source.name == self._source
+                        if (owned and self._registered and not self._ever_owned
+                                and self._acquisition_at is not None
+                                and now-self._acquisition_at >= self._acquisition_timeout):
+                            self._owner_name, self._owner_at = response.input_source.name, now
+                            self._source_active = False
+                            self._trip("MC first ownership acknowledgement arrived after acquisition deadline")
+                            continue
+                        if owned != self._source_active or response.input_source.name != self._owner_name:
+                            logger.info('source_ownership source=%s owner=%s owned=%s',
+                                        self._source, response.input_source.name, owned)
+                        self._owner_name = response.input_source.name
                         self._owner_at, self._source_active = now, owned
                         if self._registered and self._ever_owned and not owned:
                             self._trip("MC input source ownership lost", recover=False)
                         self._ever_owned = self._ever_owned or (self._registered and owned)
+                # Discovery can time out during startup. Clear only this exact
+                # read-only timeout after its retry succeeds, before any ownership.
+                # Operational/watchdog faults remain latched until explicit enable.
+                if (name.startswith("Get") and not self._registered and not self._enabled
+                        and not self._ever_owned and "SetMcInputSource" not in self._pending
+                        and self._fault == name + " timed out"):
+                    logger.info('startup_query_recovered service=%s', name)
+                    self._fault = None
             except Exception as exc:
                 if name.startswith("Set") or self._registered:
                     self._trip(name + " failed: " + str(exc))
@@ -457,13 +559,21 @@ class Ros2Backend:
         msg.header.stamp, msg.header.sequence = self._stamp(), self._sequence
         self._sequence = (self._sequence + 1) % 2**32
         msg.source = self._source
-        motion = (self._enabled and not self._fault and self._owns(now) and self._target == _WALK
+        motion = (self._enabled and not self._fault and (self._owns(now) or self._can_acquire(now)) and self._target == _WALK
                   and self._ready(_WALK, now) and self._waiting_action is None)
         value = self._velocity if motion else _ZERO
+        if motion and not self._ever_owned:
+            value = {key: max(-0.2, min(0.2, v)) for key, v in value.items()}
         msg.forward_velocity, msg.lateral_velocity, msg.angular_velocity = value.values()
         msg.pitch_velocity = msg.level = 0.0
         self._velocity_pub.publish(msg)
         self._last_velocity_output = now
+        moving = any(value.values())
+        if moving != self._logged_motion or now-self._last_velocity_log >= 1.0:
+            logger.info('velocity_output source=%s sequence=%s allowed=%s moving=%s forward=%.4f lateral=%.4f angular=%.4f',
+                        self._source, msg.header.sequence, motion, moving,
+                        msg.forward_velocity, msg.lateral_velocity, msg.angular_velocity)
+            self._last_velocity_log, self._logged_motion = now, moving
 
     def _publish_upper(self, now):
         if (self._recovery_inhibited or self._upper_command is None
@@ -487,6 +597,12 @@ class Ros2Backend:
     def _tick(self):
         with self._lock:
             now = time.monotonic()
+            if (self._last_worker_tick is not None and now-self._last_worker_tick > .05
+                    and now-self._last_worker_gap_warning >= 1.):
+                logger.warning('worker_tick_gap_ms=%.1f source=%s registered=%s',
+                               (now-self._last_worker_tick)*1000,self._source,self._registered)
+                self._last_worker_gap_warning=now
+            self._last_worker_tick=now
             self._complete_requests(now)
             self._poll(now)
             if self._registered:
@@ -495,8 +611,9 @@ class Ros2Backend:
                 if self._ever_owned and not self._fresh(self._owner_at, now):
                     self._source_active = False
                     self._trip("MC input source ownership feedback is stale", recover=False)
-                if self._enabled and not self._ever_owned and now - self._enabled_at > self._service_timeout:
-                    self._trip("MC source acquisition timed out", recover=False)
+                if (self._enabled and not self._ever_owned and self._acquisition_at is not None
+                        and now-self._acquisition_at >= self._acquisition_timeout):
+                    self._trip("MC source acquisition timed out after first motion request")
                 if self._enabled and any(self._velocity.values()) and now - self._velocity_at > self._command_timeout:
                     self._trip("Velocity command watchdog expired")
                 if (self._enabled and self._target == _UPPER and self._upper_at is not None

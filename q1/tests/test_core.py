@@ -37,10 +37,188 @@ class CoreTests(unittest.TestCase):
     def start_walk(self):
         self.core.action("calibrate",client_id="a");self.core.action("enable",client_id="a");self.core.action("walk",client_id="a")
         b=[False]*17;b[5]=True;self.send([0.,-1.,0.,0.],b);self.core.tick()
+    def test_logger_records_controls_but_not_identical_input_heartbeats(self):
+        with self.assertLogs("q1_edge.core", level="INFO") as logs:
+            self.core.action("calibrate", client_id="a")
+            buttons=[False]*17; buttons[5]=True
+            self.send(buttons=buttons)
+            for _ in range(5): self.send(buttons=buttons)
+            self.assertEqual(sum("input_buttons" in line for line in logs.output), 1)
+            self.send(connected=False)
+        text="\n".join(logs.output)
+        self.assertIn("control_action", text)
+        self.assertIn("calibrate", text)
+        self.assertIn("input_buttons", text)
+        self.assertIn("deadman=True", text)
+        self.assertIn("input_connection", text)
+        self.assertIn("connected=False", text)
+        self.assertEqual(sum("input_buttons" in line for line in logs.output), 2)
+
+    def test_compact_input_does_not_build_full_robot_state(self):
+        from unittest.mock import patch
+        payload=dict(client_id='a',source='simulator',sequence=2,axes=[0.]*4,buttons=[False]*17,connected=True)
+        with patch.object(self.core,'state',side_effect=AssertionError('full state on heartbeat')):
+            ack=self.core.input(payload,compact=True)
+        self.assertEqual(ack['sequence'],2)
+        self.assertEqual(self.core._seq,2)
+        self.assertNotIn('robot',ack)
+
+    def test_compact_inputs_reject_replays_and_invalid_axes_without_refreshing(self):
+        payload=dict(client_id='a',source='simulator',sequence=2,axes=[0.]*4,buttons=[False]*17,connected=True)
+        self.core.input(payload,compact=True);received=self.core._received
+        self.now+=.1
+        with self.assertRaises(ValueError):self.core.input(payload,compact=True)
+        payload.update(sequence=3,axes=[0.,float('nan'),0.,0.])
+        with self.assertRaises(ValueError):self.core.input(payload,compact=True)
+        self.assertEqual(self.core._received,received)
+
+    def test_input_gap_and_untrusted_link_metrics_are_diagnostic_only(self):
+        self.now+=.21
+        payload=dict(client_id='a',source='simulator',sequence=2,axes=[0.]*4,buttons=[False]*17,connected=True,
+                     telemetry={'rtt_ms':125.,'timeouts':2,'max_rtt_ms':240.,'unsafe':'ignore','errors':float('nan')})
+        with self.assertLogs('q1_edge.core',level='WARNING') as logs:self.core.input(payload)
+        self.assertIn('input_gap', '\n'.join(logs.output))
+        metrics=self.core.state()['input']['link']
+        self.assertAlmostEqual(metrics['last_gap_ms'],210.)
+        self.assertAlmostEqual(metrics['max_gap_ms'],210.)
+        self.assertEqual(metrics['client']['rtt_ms'],125.)
+        self.assertNotIn('unsafe',metrics['client']);self.assertNotIn('errors',metrics['client'])
+        self.assertFalse(self.core.enabled)
+
+    def test_input_timeout_logs_exact_age_and_sequence_before_recovery(self):
+        self.start_walk();self.now+=.3
+        with self.assertLogs('q1_edge.core',level='WARNING') as logs:self.core.tick()
+        text='\n'.join(logs.output)
+        self.assertIn('stop_context',text);self.assertIn('input_age_ms=300.0',text)
+        self.assertIn('sequence=',text)
+        self.assertFalse(self.core.enabled);self.assertEqual(self.device.velocity,(0.,0.,0.))
+        self.send();self.core.tick();self.assertFalse(self.core.enabled)
+
+    def physical_ready(self):
+        self.core=Controller(self.device,load_config(),clock=lambda:self.now)
+        self.send(source='browser_gamepad')
+        self.core.action('calibrate',client_id='a')
+
+    def hold_rb(self,seconds=1.0):
+        buttons=[False]*17;buttons[5]=True
+        start=self.now;self.send(buttons=buttons,source='browser_gamepad')
+        steps=round(seconds/.1)
+        for i in range(1,steps+1):
+            self.now=start+i*.1
+            self.send(buttons=buttons,source='browser_gamepad');self.core.tick()
+
+    def test_rb_long_press_toggles_once_and_release_keeps_armed(self):
+        self.physical_ready();self.hold_rb(2.)
+        self.assertTrue(self.core.enabled)
+        self.assertTrue(self.core.state()['input']['motion_latched'])
+        self.send(source='browser_gamepad')
+        self.core.action('walk',client_id='a')
+        self.send(axes=[0.,-1.,0.,0.],source='browser_gamepad');self.core.tick()
+        self.assertGreater(self.device.velocity[0],0)
+        self.send(source='browser_gamepad');self.core.tick()
+        self.assertEqual(self.device.velocity,(0.,0.,0.))
+        self.hold_rb(1.)
+        self.assertFalse(self.core.enabled)
+        self.assertFalse(self.core.state()['input']['motion_latched'])
+        self.assertEqual(self.device.velocity,(0.,0.,0.))
+
+    def test_rb_can_enable_again_after_explicit_toggle_off(self):
+        self.physical_ready();self.hold_rb(1.)
+        self.send(source='browser_gamepad');self.hold_rb(1.)
+        self.assertFalse(self.core.enabled);self.assertTrue(self.core.calibrated)
+        self.send(source='browser_gamepad');self.hold_rb(1.)
+        self.assertTrue(self.core.enabled)
+
+    def test_toggle_off_requires_release_before_late_enable_edges_or_actions(self):
+        self.physical_ready();self.hold_rb(1.)
+        self.send(source='browser_gamepad');self.hold_rb(1.)
+        buttons=[False]*17;buttons[5]=buttons[9]=True
+        self.send(buttons=buttons,source='browser_gamepad');self.core.tick()
+        self.assertFalse(self.core.enabled)
+        with self.assertRaises(ValueError):self.core.action('enable',client_id='a')
+        self.assertFalse(self.core.state()['input']['motion_latched'])
+        self.send(source='browser_gamepad');self.hold_rb(1.)
+        self.assertTrue(self.core.enabled)
+
+    def test_stop_fences_late_old_enable_frame(self):
+        self.physical_ready();self.hold_rb(1.)
+        self.send(source='browser_gamepad')
+        self.core.action('stop',client_id='a')
+        buttons=[False]*17;buttons[8]=buttons[9]=True
+        self.send(buttons=buttons,source='browser_gamepad');self.core.tick()
+        self.assertFalse(self.core.enabled)
+        self.assertFalse(self.core.calibrated)
+        self.assertFalse(self.core.state()['input']['motion_latched'])
+        self.assertEqual(self.device.velocity,(0.,0.,0.))
+
+    def test_short_rb_or_non_neutral_hold_cannot_arm(self):
+        self.physical_ready();self.hold_rb(.9)
+        self.assertFalse(self.core.enabled)
+        self.send(source='browser_gamepad')
+        buttons=[False]*17;buttons[5]=True
+        start=self.now
+        for i in range(12):
+            self.now=start+i*.1
+            self.send(axes=[.5,0.,0.,0.],buttons=buttons,source='browser_gamepad')
+        self.assertFalse(self.core.enabled)
+        self.assertEqual(self.device.velocity,(0.,0.,0.))
+
+    def test_stop_button_wins_over_same_frame_long_press_and_gap_clears_latch(self):
+        self.physical_ready();self.hold_rb(.9)
+        buttons=[False]*17;buttons[5]=buttons[1]=True
+        self.now+=.1;self.send(buttons=buttons,source='browser_gamepad')
+        self.assertFalse(self.core.enabled)
+        self.send(source='browser_gamepad');self.core.action('calibrate',client_id='a');self.hold_rb(1.)
+        self.assertTrue(self.core.enabled)
+        self.now+=.3;self.core.tick()
+        self.assertFalse(self.core.enabled)
+        self.assertFalse(self.core.state()['input']['motion_latched'])
+        self.hold_rb(1.2)
+        self.assertFalse(self.core.enabled)
+
+    def test_bounded_jitter_and_late_stop_frame_never_auto_rearm(self):
+        self.physical_ready();self.hold_rb(1.)
+        self.send(source='browser_gamepad');self.core.action('walk',client_id='a')
+        for i in range(100):
+            self.now+=(.05,.12,.18,.20)[i%4]
+            self.send(axes=[0.,-.4,(-.5 if i%2 else .5),0.],source='browser_gamepad');self.core.tick()
+            self.assertTrue(self.core.enabled)
+        self.now+=.251
+        buttons=[False]*17;buttons[8]=buttons[9]=True
+        self.send(buttons=buttons,source='browser_gamepad');self.core.tick()
+        self.assertFalse(self.core.enabled);self.assertFalse(self.core.calibrated)
+        self.assertFalse(self.core.state()['input']['motion_latched'])
+        self.assertEqual(self.device.velocity,(0.,0.,0.))
+        self.send(source='browser_gamepad');self.hold_rb(1.2)
+        self.assertFalse(self.core.enabled)
+
+    def test_right_stick_turns_body_both_ways_after_latched_enable(self):
+        self.physical_ready();self.hold_rb(1.)
+        self.send(source='browser_gamepad');self.core.action('walk',client_id='a')
+        self.send(axes=[0.,0.,1.,0.],source='browser_gamepad');self.core.tick()
+        self.assertEqual(self.device.velocity,(0.,0.,-.4))
+        self.send(axes=[0.,0.,-1.,0.],source='browser_gamepad');self.core.tick()
+        self.assertEqual(self.device.velocity,(0.,0.,.4))
+        self.send(source='browser_gamepad');self.core.tick()
+        self.assertEqual(self.device.velocity,(0.,0.,0.))
+
     def test_uncalibrated_cannot_enable(self):
         with self.assertRaises(ValueError):self.core.action("enable",client_id="a")
         self.assertFalse(self.core.state()["enabled"])
         self.assertEqual(self.device.velocity,(0.,0.,0.))
+    def test_explicit_walk_and_rb_can_request_bounded_initial_acquisition(self):
+        self.core.action("calibrate",client_id="a")
+        self.core.action("enable",client_id="a")
+        self.core.action("walk",client_id="a")
+        self.device.active=False
+        original=self.device.snapshot
+        self.device.snapshot=lambda:dict(original(),source_can_acquire=True)
+        buttons=[False]*17;buttons[5]=True
+        self.send([0.,-1.,0.,0.],buttons);self.core.tick()
+        self.assertGreater(self.device.velocity[0],0)
+        self.send();self.core.tick()
+        self.assertEqual(self.device.velocity,(0.,0.,0.))
+
     def test_deadman_is_required_and_release_immediately_zeros(self):
         self.start_walk();self.assertGreater(self.device.velocity[0],0.)
         self.send([0.,-1.,0.,0.]);self.core.tick()

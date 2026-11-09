@@ -11,3 +11,10 @@ runtime/
 config/local.json
 .env
 *.jsonl
+rust/target/
+rust/dist/
+rust/reports/
+
+artifacts/
+cross/
+deploy/supermimic/private/

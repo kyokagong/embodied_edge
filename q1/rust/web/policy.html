@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Q1 · Policy</title>
+  <link rel="stylesheet" href="/supermimic.css"><script src="/policy.js" defer></script>
+</head>
+<body>
+<header><span class="eyebrow">Q1 / WHOLE BODY POLICY</span><h1>Q1 Policy <small id="iteration">—</small></h1><span id="connection">连接中</span></header>
+<main>
+  <section class="status"><div><span class="eyebrow">控制器状态</span><h2 id="phase">等待服务</h2><p id="permission">运动许可关闭</p><p id="actuators">等待本体反馈</p><p id="model"></p></div><button id="hold" class="stop">停止并保持</button></section>
+  <div id="message" role="status" aria-live="polite"></div>
+  <section id="blockers" class="notice"></section>
+  <section class="notice"><b>动作资格</b><p id="qualification">等待模型包资格记录。</p><p>站立从失能、双脚着地且吊杆支撑的蹲坐姿态开始，按实测姿态接入站立参考。参考结束仍需检查实际姿态；不读取未提供的足底接触或根部高度测量。</p></section>
+  <div class="grid">
+    <section class="card"><h2>连接与控制</h2>
+      <div class="buttons"><button id="pair">取得操作权</button><button id="stand-button" data-action="start_policy">站立（蹲坐→直立）／返回站立</button></div>
+      <p id="operator">未取得操作权</p>
+      <div class="buttons"><button data-action="sit">坐下 · floor_fold</button><button data-action="lie">躺下 · lie</button></div>
+      <p>坐下后保持坐姿，返回站立会播放参考返回段。躺下保持终点；趴姿起身暂不开放，不能通过站立按钮从趴姿恢复。</p>
+      <p id="readiness">站立将匹配实测关节和IMU对应的蹲姿参考，不执行旧版20秒home插值。</p>
+      <div class="buttons"><button data-action="release">释放执行器</button><button data-action="reset">复位会话</button></div>
+      <p>停止并保持与任务返回相互独立。停用策略并排查故障后可复位会话；复位不会移动机器人。</p>
+    </section>
+    <section class="card"><h2>参考舞蹈</h2>
+      <label>动作 <select id="motion" aria-label="参考舞蹈"></select></label><p id="motion-note">等待动作清单</p>
+      <div class="buttons"><button id="play">播放选中动作</button><button data-action="cancel_motion">取消并返回站立</button></div>
+      <progress id="progress" value="0" max="1"></progress><p id="task">无参考任务</p><p id="task-boundary"></p>
+      <p>取消舞蹈会进入模型包中的返回段。坐下与趴下的未来参考在保持边界处截断。</p>
+    </section>
+  </div>
+  <section class="card"><h2>全身关节 <small>22 DOF / rad</small></h2><div class="joint-head"><span>关节</span><span>实测</span><span>策略目标</span><span>速度</span><span>温度</span></div><div id="joints"></div></section>
+  <details class="card" open><summary>反馈与时序</summary><div class="metrics"><div>推理耗时<strong id="inference">—</strong></div><div>发送频率<strong id="tx">—</strong></div><div>反馈年龄<strong id="age">—</strong></div><div>输入帧数<strong id="inputs">0</strong></div><div>模型调用<strong id="models">0</strong></div><div>最长发送间隔<strong id="gap">—</strong></div></div><p>50 Hz 策略；HAL发送频率以实际部署和反馈为准。显示的策略目标不代表本体已执行。</p><pre id="fault"></pre></details>
+  <details class="card"><summary>模型与接口</summary><pre id="identity"></pre></details>
+  <details class="card"><summary>运行记录</summary><ol id="events"></ol></details>
+  <footer>紧急情况使用现场独立急停。关闭页面不会自动完成任务返回；请明确选择停止并保持或释放执行器。</footer>
+</main>
+</body>
+</html>

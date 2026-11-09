@@ -1,3 +1,19 @@
+# SuperMimic 当前接入入口
+
+当前部署已更新：Q1本地持续推理与Web服务、Mini PC Docker转发入口，真实任务操作流程已通过。[当前控制台与操作说明](2026-11-07-q1-onboard-console.md)。以下包含此前架构／评估阶段记录。
+
+
+2026-11-07：当前任务固定使用 `q1_unified_6144_iter22100_20261107`，Rust + ONNX Runtime。已部署 Mini PC Docker 和 Q1 ARM64 保护器，处于真实联调阶段，尚未通过全身运动验收。
+
+- [批准的设计实施方案](2026-11-07-supermimic-rust-integration-plan.md)
+- [本体保护原理](2026-11-07-q1-onboard-guard-design.md)
+- [真实测试、未通过项与当前执行器状态](2026-11-07-supermimic-deployment-results.md)
+- [构建与运行说明](../deploy/supermimic/README.md)
+
+下面保留旧版原厂 MC 阶段的历史说明。其中 28000 模型、BONES-SEED 及“尚无IMU”等状态不适用于本轮22100部署。
+
+---
+
 # 后续接入 SuperMimic 的边界
 
 首版仅实现原厂MC站立/行走与Pico上肢遥操。页面的SuperMimic入口明确禁用，不会把仿真模型直接发送到本体。

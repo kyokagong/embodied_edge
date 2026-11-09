@@ -105,6 +105,10 @@ class RosTransport:
         self.action, self.action_status = "BIPED_WALK_RUN", 100
         self.owner, self.registered = "", False
         self.joint_positions = {}
+        self.source_name = "edge_q1"
+        self.expired_sources = set()
+        self.requires_nonzero = False
+        self.accepts_source = True
         self.auto_feedback = True
         self.running, self.latest_stamp = True, 0
         self.modules = self.make_modules()
@@ -129,11 +133,13 @@ class RosTransport:
         if name == "SetMcInputSource":
             if request.action.value == 1001:
                 self.registered = True
+                self.source_name = request.input_source.name
             if request.action.value == 1003:
                 self.registered = False
+                self.expired_sources.add(request.input_source.name)
         if name == "GetCurrentInputSource":
             response.input_source.name = self.owner
-            response.input_source.priority = 30 if self.owner == "edge_q1" else 80
+            response.input_source.priority = 30 if self.owner == self.source_name or self.owner in self.expired_sources else 80
             response.input_source.timeout = 1000
         return response
 
@@ -183,8 +189,10 @@ class RosTransport:
 
                 def publish(message):
                     transport.published[topic].append(copy.deepcopy(message))
-                    if topic == "/aima/mc/locomotion/velocity" and transport.registered:
-                        if transport.owner in ("", "edge_q1"):
+                    if (topic == "/aima/mc/locomotion/velocity" and transport.registered
+                            and transport.accepts_source and (not transport.requires_nonzero
+                            or any((message.forward_velocity, message.lateral_velocity, message.angular_velocity)))):
+                        if transport.owner in ("", transport.source_name) or transport.owner in transport.expired_sources:
                             transport.owner = message.source
 
                 return types.SimpleNamespace(publish=publish)
@@ -232,6 +240,8 @@ class RosTransport:
             def __init__(self, **kwargs):
                 self.__dict__.update(kwargs)
 
+        sensor_msg = types.ModuleType("sensor_msgs.msg")
+        sensor_msg.JointState = type("JointState", (), {})
         rclpy.init = lambda **kwargs: None
         rclpy.shutdown = lambda **kwargs: None
         rclpy.ok = lambda **kwargs: transport.running
@@ -240,7 +250,8 @@ class RosTransport:
         for name in ("HistoryPolicy", "DurabilityPolicy", "ReliabilityPolicy"):
             setattr(qos_mod, name, types.SimpleNamespace(KEEP_LAST=1, VOLATILE=2,
                                                        BEST_EFFORT=3, RELIABLE=4))
-        return {"rclpy": rclpy, "rclpy.context": context_mod, "rclpy.node": node_mod,
+        return {"sensor_msgs": types.ModuleType("sensor_msgs"), "sensor_msgs.msg": sensor_msg,
+                "rclpy": rclpy, "rclpy.context": context_mod, "rclpy.node": node_mod,
                 "rclpy.executors": executor_mod, "rclpy.qos": qos_mod,
                 "aimdk_msgs": types.ModuleType("aimdk_msgs"),
                 "aimdk_msgs.msg": self.msg, "aimdk_msgs.srv": self.srv}
@@ -258,6 +269,21 @@ def wait_for(predicate, seconds=1):
 class BackendTests(unittest.TestCase):
     def setUp(self):
         self.backends = importlib.import_module("q1_edge.backends")
+
+    def test_snapshot_component_ages_and_scheduling_gap_are_diagnostic(self):
+        robot=self.make_robot()
+        now=time.monotonic()
+        with robot._lock, patch('q1_edge.backends.time.monotonic',return_value=now), \
+                patch.object(robot,'_complete_requests'),patch.object(robot,'_poll'):
+            robot._action_at=now-.12
+            robot._owner_at=now-.08
+            robot._last_worker_tick=now-.15
+            with self.assertLogs('q1_edge.backends',level='WARNING') as logs:
+                robot._tick()
+            self.assertIn('worker_tick_gap_ms', '\n'.join(logs.output))
+            snapshot=robot.snapshot()
+            self.assertAlmostEqual(snapshot['action_age_s'],.12)
+            self.assertAlmostEqual(snapshot['owner_age_s'],.08)
 
     def test_mock_requires_enable_and_validates_all_joint_targets(self):
         robot = self.backends.MockBackend()
@@ -299,6 +325,241 @@ class BackendTests(unittest.TestCase):
     def upper_messages(self):
         return self.transport.published["/aima/mc/custom/joint/command"]
 
+    def standard_sample(self):
+        return types.SimpleNamespace(
+            header=types.SimpleNamespace(stamp=self.transport.stamp()),
+            name=list(reversed(NAMES)), position=[0.1 * i for i in range(10)])
+
+    def test_standard_joint_feedback_maps_by_name_and_enforces_freshness(self):
+        robot = self.make_robot()
+        self.transport.auto_feedback = False
+        callback = self.transport.subscriptions.get("/upper_body_joint_states")
+        self.assertIsNotNone(callback, "real Q1 JointState topic must be subscribed")
+        sample = self.standard_sample()
+        callback(sample)
+        self.assertAlmostEqual(robot.snapshot()["joints"][NAMES[-1]], 0.0)
+        self.assertAlmostEqual(robot.snapshot()["joints"][NAMES[0]], 0.9)
+        previous_stamp = robot._joint_stamp
+        for kind in ("missing", "duplicate", "length", "nan", "stale", "future", "repeated"):
+            with self.subTest(kind=kind):
+                bad = self.standard_sample()
+                if kind == "missing": bad.name.pop(); bad.position.pop()
+                elif kind == "duplicate": bad.name[0] = bad.name[1]
+                elif kind == "length": bad.position.pop()
+                elif kind == "nan": bad.position[0] = math.nan
+                elif kind == "stale": bad.header.stamp.sec -= 5
+                elif kind == "future": bad.header.stamp.sec += 5
+                else: bad = sample
+                callback(bad)
+                self.assertEqual(robot._joint_stamp, previous_stamp)
+        time.sleep(.17)
+        self.assertFalse(robot.snapshot()["connected"])
+
+    def test_readonly_source_query_accepts_observed_unknown_success(self):
+        robot = self.make_robot()
+        self.activate(robot)
+        response = self.transport.response("GetCurrentInputSource", None)
+        response.response.state.value = 0
+        self.transport.responses["GetCurrentInputSource"] = response
+        time.sleep(.2)
+        self.assertTrue(robot.snapshot()["source_active"])
+        self.assertIsNone(robot.snapshot()["fault"])
+        response.input_source.name = "rc"
+        wait_for(lambda: bool(robot.snapshot()["fault"]))
+        self.assertFalse(robot.snapshot()["source_active"])
+
+    def test_unknown_query_with_failure_reason_does_not_confirm_ownership(self):
+        robot = self.make_robot()
+        response = self.transport.response("GetCurrentInputSource", None)
+        response.response.state.value = 0
+        response.response.state.reason = 8
+        response.input_source.name = robot._source
+        self.transport.responses["GetCurrentInputSource"] = response
+        self.activate_query_failure(robot)
+
+    def activate_query_failure(self, robot):
+        robot.enable()
+        wait_for(lambda: bool(robot.snapshot()["fault"]))
+        self.assertFalse(robot.snapshot()["source_active"])
+
+    def test_startup_readonly_timeout_recovers_after_successful_retry(self):
+        robot = self.make_robot()
+        self.transport.hanging.add("GetMcAction")
+        wait_for(lambda: robot.snapshot()["fault"] == "GetMcAction timed out")
+        self.transport.hanging.remove("GetMcAction")
+        wait_for(lambda: robot.snapshot()["fault"] is None)
+        self.assertEqual(self.velocity_messages(), [])
+        self.assertFalse(any(n.startswith("Set") for n, _ in self.transport.requests))
+
+    def test_active_readonly_timeout_remains_latched_after_retry(self):
+        robot = self.make_robot()
+        self.activate(robot)
+        self.transport.hanging.add("GetCurrentInputSource")
+        wait_for(lambda: bool(robot.snapshot()["fault"]))
+        self.transport.hanging.remove("GetCurrentInputSource")
+        time.sleep(.08)
+        self.assertIsNotNone(robot.snapshot()["fault"])
+
+    def test_firmware_waits_for_nonzero_before_source_acquisition(self):
+        robot = self.make_robot(transition_timeout_s=.1)
+        self.transport.requires_nonzero = True
+        robot.enable()
+        time.sleep(.35)  # Longer than the old enable-time deadline.
+        self.assertIsNone(robot.snapshot()["fault"])
+        self.assertFalse(robot.snapshot()["source_active"])
+        self.assertTrue(robot.snapshot()["source_can_acquire"])
+        self.assertTrue(all(m.forward_velocity == 0 for m in self.velocity_messages()))
+        robot.set_velocity(.22, 0., 0.)
+        wait_for(lambda: robot.snapshot()["source_active"])
+        wait_for(lambda: any(m.forward_velocity == .22 for m in self.velocity_messages()))
+
+    def test_first_motion_without_owner_ack_is_bounded_and_released(self):
+        robot = self.make_robot()
+        self.transport.requires_nonzero = True
+        self.transport.accepts_source = False
+        robot.enable()
+        wait_for(lambda: robot.snapshot()["source_can_acquire"])
+        robot.set_velocity(.3, 0., 0.)
+        end = time.monotonic()+.4
+        while not robot.snapshot()["fault"] and time.monotonic()<end:
+            try: robot.set_velocity(.3, 0., 0.)
+            except RuntimeError: pass
+            time.sleep(.01)
+        self.assertIsNotNone(robot.snapshot()["fault"])
+        self.assertTrue(any(m.forward_velocity > 0 for m in self.velocity_messages()))
+        self.assertLessEqual(max(m.forward_velocity for m in self.velocity_messages()), .2)
+        wait_for(lambda: not self.transport.registered)
+        self.assertEqual(self.velocity_messages()[-1].forward_velocity, 0)
+
+    def test_late_first_owner_ack_cannot_bypass_bootstrap_deadline(self):
+        robot = self.make_robot()
+        self.transport.requires_nonzero = True
+        self.transport.accepts_source = False
+        robot.enable()
+        wait_for(lambda: robot.snapshot()["source_can_acquire"])
+        with robot._lock:
+            robot.set_velocity(.3,0.,0.)
+            robot._acquisition_at = time.monotonic()-robot._acquisition_timeout-.01
+            response=self.transport.response("GetCurrentInputSource", None)
+            response.input_source.name=robot._source
+            robot._pending["GetCurrentInputSource"]=(Future(response), time.monotonic()-.02, None)
+            robot._tick()
+            self.assertIsNotNone(robot.snapshot()["fault"])
+            self.assertFalse(robot._ever_owned)
+            self.assertFalse(robot.snapshot()["source_active"])
+        self.assertTrue(all(m.forward_velocity <= .2 for m in self.velocity_messages()))
+
+    def test_unowned_enable_requires_native_running_walk(self):
+        robot = self.make_robot()
+        for action in ("BIPED_STAND_DEFAULT", "PASSIVE_DEFAULT", "BIPED_CUSTOM_UPPER"):
+            with self.subTest(action=action):
+                self.transport.action=action
+                wait_for(lambda: robot.snapshot()["action"]==action)
+                with self.assertRaisesRegex(RuntimeError, "BIPED_WALK_RUN"):
+                    robot.enable()
+        self.assertFalse(any(n.startswith("Set") for n,_ in self.transport.requests))
+
+    def test_active_foreign_owner_rejects_bounded_attempt_without_reacquisition(self):
+        robot = self.make_robot()
+        self.transport.requires_nonzero = True
+        self.transport.owner = "rc"
+        robot.enable()
+        wait_for(lambda: robot.snapshot().get("source_owner") == "rc" and robot.snapshot()["source_can_acquire"])
+        robot.set_velocity(.3, 0., 0.)
+        wait_for(lambda: bool(robot.snapshot()["fault"]))
+        self.assertEqual(self.transport.owner, "rc")
+        self.assertFalse(robot.snapshot()["source_active"])
+        self.assertTrue(all(m.forward_velocity <= .2 for m in self.velocity_messages()))
+        self.assertEqual(self.velocity_messages()[-1].forward_velocity,0)
+        with self.assertRaises(RuntimeError): robot.set_velocity(.2,0.,0.)
+
+    def test_cached_deleted_owner_does_not_block_legitimate_acquisition(self):
+        robot=self.make_robot()
+        self.transport.requires_nonzero=True
+        self.transport.owner="expired_previous_source"
+        self.transport.expired_sources.add(self.transport.owner)
+        robot.enable()
+        wait_for(lambda: robot.snapshot()["source_can_acquire"])
+        robot.set_velocity(.2,0.,0.)
+        wait_for(lambda: robot.snapshot()["source_active"])
+        self.assertIsNone(robot.snapshot()["fault"])
+
+    def test_new_registration_epoch_cannot_accept_cached_self_as_ownership(self):
+        robot=self.make_robot()
+        self.activate(robot)
+        old_source=robot._source
+        robot.stop()
+        wait_for(lambda: not robot._registered)
+        self.assertEqual(self.transport.owner,old_source)
+        self.transport.requires_nonzero=True
+        robot.enable()
+        self.assertNotEqual(robot._source,old_source)
+        wait_for(lambda: robot.snapshot()["source_can_acquire"])
+        time.sleep(.04)
+        self.assertFalse(robot.snapshot()["source_active"])
+        self.assertFalse(robot._ever_owned)
+        robot.set_velocity(.2,0.,0.)
+        wait_for(lambda: robot.snapshot()["source_active"])
+
+    def test_rpc_logger_records_registration_and_failure_without_poll_spam(self):
+        robot = self.make_robot()
+        with self.assertLogs("q1_edge.backends", level="INFO") as logs:
+            self.activate(robot)
+            response = self.transport.srv.SetMcAction.Response()
+            response.response.header.code = 7
+            self.transport.responses["SetMcAction"] = response
+            robot.request_mode("teleop")
+            wait_for(lambda: bool(robot.snapshot()["fault"]))
+        text = "\n".join(logs.output)
+        for detail in ("rpc_request", "SetMcInputSource", "edge_q1", "rpc_response", "code=7", "backend_fault"):
+            self.assertIn(detail, text)
+        self.assertNotIn("rpc_response service=Get", text)
+
+    def test_source_registration_accepts_firmware_unset_business_state(self):
+        robot = self.make_robot()
+        def firmware_response(request):
+            response = self.transport.response("SetMcInputSource", request)
+            response.response.state.value = self.transport.msg.CommonState.UNKNOWN
+            return response
+        self.transport.responses["SetMcInputSource"] = firmware_response
+        self.activate(robot)
+        self.assertIsNone(robot.snapshot()["fault"])
+        robot.set_velocity(.22, 0., 0.)
+        wait_for(lambda: any(m.forward_velocity == .22 for m in self.velocity_messages()))
+        robot.stop()
+        wait_for(lambda: not self.transport.registered and not robot._registered)
+        self.assertFalse(robot.snapshot()["source_active"])
+
+    def test_unset_source_business_state_with_reason_rejected(self):
+        robot = self.make_robot()
+        response = self.transport.srv.SetMcInputSource.Response()
+        response.response.state.reason = 8
+        self.transport.responses["SetMcInputSource"] = response
+        robot.enable()
+        wait_for(lambda: bool(robot.snapshot()["fault"]))
+        self.assertFalse(robot.snapshot()["source_active"])
+        self.assertEqual(self.velocity_messages(), [])
+
+    def test_unknown_action_response_is_still_rejected(self):
+        robot = self.make_robot()
+        self.activate(robot)
+        response = self.transport.srv.SetMcAction.Response()
+        self.transport.responses["SetMcAction"] = response
+        robot.request_mode("teleop")
+        wait_for(lambda: bool(robot.snapshot()["fault"]))
+        self.assertFalse(self.upper_messages())
+
+    def test_nonzero_source_rpc_does_not_register_source(self):
+        robot = self.make_robot()
+        response = self.transport.srv.SetMcInputSource.Response()
+        response.response.header.code = 1
+        response.response.state.value = 0
+        self.transport.responses["SetMcInputSource"] = response
+        robot.enable()
+        wait_for(lambda: bool(robot.snapshot()["fault"]))
+        self.assertFalse(robot.snapshot()["source_active"])
+        self.assertEqual(self.velocity_messages(), [])
+
     def test_ros_connection_is_read_only_until_explicit_enable(self):
         robot = self.make_robot()
         time.sleep(0.04)
@@ -309,7 +570,7 @@ class BackendTests(unittest.TestCase):
         self.activate(robot)
         adds = [r for n, r in self.transport.requests if n == "SetMcInputSource"]
         self.assertEqual([(r.action.value, r.input_source.name, r.input_source.priority,
-                           r.input_source.timeout) for r in adds], [(1001, "edge_q1", 30, 1000)])
+                           r.input_source.timeout) for r in adds], [(1001, robot._source, 30, 1000)])
 
     def test_positive_velocity_requires_running_action_and_owned_source(self):
         robot = self.make_robot()
@@ -327,7 +588,7 @@ class BackendTests(unittest.TestCase):
         wait_for(lambda: any(m.forward_velocity == 0.1 for m in self.velocity_messages()))
         wait_for(lambda: robot.snapshot()["fault"] is not None)
         self.assertEqual(self.velocity_messages()[-1].forward_velocity, 0)
-        self.assertEqual(self.transport.owner, "edge_q1")
+        self.assertEqual(self.transport.owner, robot._source)
         with self.assertRaises(RuntimeError):
             robot.set_velocity(0.1, 0, 0)
 
@@ -435,7 +696,7 @@ class BackendTests(unittest.TestCase):
         self.activate(robot)
         self.transport.owner = "rc"
         wait_for(lambda: robot.snapshot()["fault"] is not None)
-        self.transport.owner = "edge_q1"
+        self.transport.owner = robot._source
         self.transport.action = "BIPED_CUSTOM_UPPER"
         time.sleep(0.06)
         self.assertFalse(any(n == "SetMcAction" for n, r in self.transport.requests))
@@ -463,7 +724,7 @@ class BackendTests(unittest.TestCase):
         controller.tick()
         self.assertFalse(controller.enabled)
         self.assertEqual(controller.mode, "fault")
-        self.transport.owner = "edge_q1"
+        self.transport.owner = robot._source
         time.sleep(0.08)
         self.assertFalse(any(n == "SetMcAction" for n, r in self.transport.requests))
         self.assertTrue(all(m.forward_velocity == m.lateral_velocity == m.angular_velocity == 0
@@ -487,7 +748,7 @@ class BackendTests(unittest.TestCase):
         wait_for(lambda: robot.snapshot()["fault"] is not None)
         upper_count = len(self.upper_messages())
         robot.stop()
-        self.transport.owner = "edge_q1"
+        self.transport.owner = robot._source
         self.transport.joint_positions = dict(self.backends.UPPER_HOME)
         time.sleep(0.08)
         robot.close()
@@ -505,7 +766,7 @@ class BackendTests(unittest.TestCase):
         self.transport.owner = "rc"
         self.transport.action = "BIPED_CUSTOM_UPPER"
         wait_for(lambda: robot.snapshot()["fault"] is not None)
-        self.transport.owner = "edge_q1"
+        self.transport.owner = robot._source
         self.transport.auto_feedback = False
         time.sleep(0.18)
         self.assertFalse(robot.snapshot()["connected"])
@@ -629,7 +890,7 @@ class BackendTests(unittest.TestCase):
         messages = self.velocity_messages()
         stamps = [m.header.stamp.sec * 10**9 + m.header.stamp.nanosec for m in messages]
         self.assertTrue(all(a < b for a, b in zip(stamps, stamps[1:])))
-        self.assertTrue(all(m.source == "edge_q1" and m.pitch_velocity == 0 and m.level == 0
+        self.assertTrue(all(m.source == robot._source and m.pitch_velocity == 0 and m.level == 0
                             for m in messages))
 
 

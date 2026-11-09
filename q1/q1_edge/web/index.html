@@ -79,7 +79,7 @@
       <section class="card input-card" aria-labelledby="input-title">
         <div class="card-heading"><div><span class="section-no">03</span><h2 id="input-title">控制输入</h2></div><span id="input-source-badge" class="badge badge-mock">SIMULATED</span></div>
         <label class="field-label" for="source-select">输入源 / INPUT SOURCE</label>
-        <select id="source-select"><option value="simulator">模拟手柄 · Simulator</option><option value="browser_gamepad">浏览器手柄 · Gamepad API</option></select>
+        <select id="source-select"><option id="simulator-option" value="simulator">模拟手柄 · Simulator</option><option value="browser_gamepad">浏览器手柄 · Gamepad API</option></select>
         <div class="input-status-line"><span id="pad-status">模拟输入已选择</span><span id="input-age">-- ms</span></div>
         <div id="simulator-controls">
           <div class="axis-control"><label for="axis-0">横移 <small>LEFT X</small></label><input id="axis-0" type="range" min="-1" max="1" step="0.01" value="0"><output id="axis-0-value" for="axis-0">0.00</output></div>
@@ -89,8 +89,8 @@
           <button id="deadman-button" class="deadman-button" type="button" aria-pressed="false"><span class="deadman-indicator"></span><span>按住允许运动<small>HOLD / RB · SPACE</small></span><span class="hold-glyph">↧</span></button>
           <div class="input-tools"><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 平移 · <kbd>Q</kbd><kbd>E</kbd> 转向</span><button id="neutral-button" type="button" class="text-button">归中</button></div>
         </div>
-        <div id="browser-pad-info" class="browser-pad-info" hidden><div class="gamepad-glyph">⌘</div><strong id="gamepad-name">未检测到物理手柄</strong><p id="gamepad-detail">连接标准映射手柄，然后按任意按钮唤醒浏览器。</p><div class="pad-axes" id="pad-axes">LX 0.00 · LY 0.00 · RX 0.00 · RY 0.00</div><span id="real-deadman" class="badge badge-outline">RB RELEASED</span></div>
-        <div class="mapping"><span><b>A</b>站立</span><span><b>B</b>停止</span><span><b>X</b>行走</span><span><b>Y</b>遥操作</span><span><b>RB</b>按住运行</span><span><b>BACK</b>标定</span><span><b>START</b>使能</span></div>
+        <div id="browser-pad-info" class="browser-pad-info" hidden><div class="gamepad-glyph">⌘</div><strong id="gamepad-name">未检测到物理手柄</strong><p id="gamepad-detail">连接标准映射手柄，然后按任意按钮唤醒浏览器。</p><div class="pad-axes" id="pad-axes">LX 0.00 · LY 0.00 · RX 0.00 · RY 0.00</div><p id="link-health">RTT -- ms</p><p>左摇杆：前后／横移 · 右摇杆水平：整机左右转向（行走模式）</p><span id="real-deadman" class="badge badge-outline">RB RELEASED</span></div>
+        <div class="mapping"><span><b>A</b>站立</span><span><b>B</b>停止</span><span><b>X</b>行走</span><span><b>Y</b>遥操作</span><span><b>RB</b><span id="rb-mapping-hint">长按1秒切换使能</span></span><span><b>BACK</b>标定</span><span><b>START</b>使能</span></div>
         <p class="quiet">切换输入源、断开手柄、窗口失焦或切换标签页会停止并解除使能；恢复后请重新使能。</p>
       </section>
 

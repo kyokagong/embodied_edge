@@ -13,7 +13,9 @@ class ControllerBoundary:
     def action(self,name,client_id=None):
         if name not in ['stop','enable']:raise ValueError('Unknown action')
         self.commands.append(name);return self.state()
-    def input(self,payload):self.commands.append('input');return self.state()
+    def input(self,payload,compact=False):
+        self.commands.append('input')
+        return {'sequence':payload.get('sequence')} if compact else self.state()
     def pico_frame(self,payload,source='simulator'):self.commands.append(source);return self.state()
 
 class ServerTests(unittest.TestCase):
@@ -35,6 +37,30 @@ class ServerTests(unittest.TestCase):
     def test_state_is_json_and_no_motion(self):
         status,payload=self.request('/api/state',method='GET')
         self.assertEqual(status,200);self.assertFalse(json.loads(payload)['enabled']);self.assertEqual(self.controller.commands,[])
+    def test_malformed_url_is_logged_and_returns_bad_request(self):
+        with self.assertLogs('q1_edge.server', level='WARNING') as logs:
+            status,_=self.request('http://[', headers={'Host':f'127.0.0.1:{self.port}'})
+        self.assertEqual(status,400)
+        self.assertIn('api_rejected', '\n'.join(logs.output))
+        self.assertEqual(self.controller.commands,[])
+
+    def test_compact_input_ack_and_reusable_http_connection(self):
+        c=http.client.HTTPConnection('127.0.0.1',self.port,timeout=3)
+        headers={'Host':f'127.0.0.1:{self.port}','Content-Type':'application/json',
+                 'X-Q1-Token':self.server.api_token,'Origin':self.base,'X-Q1-Compact':'1'}
+        for seq in (7,8):
+            c.request('POST','/api/input',body=json.dumps({'sequence':seq}),headers=headers)
+            response=c.getresponse();payload=json.loads(response.read())
+            self.assertEqual(response.status,200)
+            self.assertEqual(response.version,11)
+            self.assertNotIn('state',payload)
+            self.assertEqual(payload['ack']['sequence'],seq)
+            self.assertIsNotNone(c.sock)
+            if seq==7: first_socket=c.sock
+            else:self.assertIs(c.sock,first_socket)
+        c.close()
+        self.assertEqual(self.controller.commands,['input','input'])
+
     def test_command_requires_token(self):
         status,_=self.request(headers={'X-Q1-Token':'bad'})
         self.assertEqual(status,403);self.assertEqual(self.controller.commands,[])

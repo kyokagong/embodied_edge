@@ -37,6 +37,11 @@ def load_config(path=None):
         raise ValueError('Velocity maxima must cover the configured nonzero minimum')
     if type(value['upper']['hardware_limits_confirmed']) is not bool:
         raise ValueError('hardware_limits_confirmed must be boolean')
+    if type(value['gamepad']['rb_toggle_enabled']) is not bool:
+        raise ValueError('rb_toggle_enabled must be boolean')
+    duration=value['gamepad']['rb_hold_s']
+    if type(duration) not in (int,float) or not math.isfinite(duration) or not 1 <= duration <= 3:
+        raise ValueError('rb_hold_s must be between 1 and 3 seconds')
     for index in value['buttons'].values():
         if type(index) is not int or not 0 <= index < 17:
             raise ValueError('Button indices must be integers in [0,16]')

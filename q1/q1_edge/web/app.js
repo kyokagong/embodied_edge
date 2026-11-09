@@ -22,6 +22,8 @@
   let sequence = 0;
   let lastTimestamp = 0;
   let inputBusy = false;
+  let lastSendAt = null;
+  const link = {rtt_ms:0,max_rtt_ms:0,timeouts:0,errors:0,send_gap_ms:0,skipped:0};
   let picoBusy = false;
   let pollBusy = false;
   let actionBusy = false;
@@ -39,11 +41,13 @@
 
   const fixed = (value, digits = 2) => Number.isFinite(value) ? value.toFixed(digits) : '--';
   const ageText = value => Number.isFinite(value) ? `${Math.round(value)} ms` : '-- ms';
+  const latchedControls = () => source === 'browser_gamepad' && state?.controls?.rb_toggle_enabled !== false;
   const simulated = () => source === 'simulator' && state?.backend === 'mock';
+  const picoAvailable = () => state?.capabilities?.pico !== false;
   const visible = () => !suspended && document.visibilityState !== 'hidden';
   const neutral = () => lastInput.axes.every(value => Math.abs(value) < 0.08) && !lastInput.buttons[5];
-  const nativeTracking = () => state?.pico?.source === 'xrobotoolkit' && state.pico.connected && Number.isFinite(state.pico.age_ms) && state.pico.age_ms < 250;
-  const gripsReleased = () => simulated() ? !$('left-grip').checked && !$('right-grip').checked : !state?.pico?.frame || (state.pico.frame.left_grip < 0.7 && state.pico.frame.right_grip < 0.7);
+  const nativeTracking = () => picoAvailable() && state?.pico?.source === 'xrobotoolkit' && state.pico.connected && Number.isFinite(state.pico.age_ms) && state.pico.age_ms < 250;
+  const gripsReleased = () => !picoAvailable() || (simulated() ? !$('left-grip').checked && !$('right-grip').checked : !state?.pico?.frame || (state.pico.frame.left_grip < 0.7 && state.pico.frame.right_grip < 0.7));
   const reportError = message => {
     $('error-message').textContent = message;
     $('error-panel').hidden = !message;
@@ -56,13 +60,14 @@
       options.method = 'POST';
       options.headers = {'Content-Type':'application/json'};
       if (token) options.headers['X-Q1-Token'] = token;
+      if (path === '/api/input') options.headers['X-Q1-Compact'] = '1';
       options.body = JSON.stringify(payload);
     }
     try {
       const response = await fetch(path, options);
       const data = await response.json();
       if (!response.ok) {
-        if (data.state) acceptState(data.state);
+        // Callers fence state updates against their control epoch.
         throw new Error(data.error || `HTTP ${response.status}`);
       }
       return data;
@@ -71,8 +76,20 @@
 
   function acceptState(next) {
     if (!next || typeof next !== 'object' || !next.robot) throw new Error('控制服务返回了无效状态');
+    const previousState = state;
     state = next;
     online = true;
+    $('simulator-option').disabled = state.backend === 'ros2';
+    if (state.backend === 'ros2' && source === 'simulator') {
+      source = 'browser_gamepad';
+      $('source-select').value = source;
+      padName = '';
+      padReleaseWaiting = false;
+      resetControls();
+      // A new page must not stop another operator. An existing page whose
+      // backend changed must invalidate its old input before continuing.
+      if (previousState) safetyStop();
+    }
     render();
   }
 
@@ -96,8 +113,9 @@
   async function pollState() {
     if (pollBusy) return;
     pollBusy = true;
-    try { acceptState(await request('/api/state')); }
-    catch (error) { offline(error); }
+    const epoch = controlEpoch;
+    try { const next = await request('/api/state'); if (epoch === controlEpoch) acceptState(next); }
+    catch (error) { if (epoch === controlEpoch) offline(error); }
     finally { pollBusy = false; }
   }
 
@@ -196,18 +214,38 @@
     const input = readInput();
     if (input) lastInput = input;
     renderInput();
+    if (input && inputBusy) link.skipped++;
     if (input && !inputBusy && (input.connected || !nativeTracking())) {
       inputBusy = true;
       inputAbort = new AbortController();
       const epoch = controlEpoch;
+      const sentAt = performance.now();
+      link.send_gap_ms = lastSendAt === null ? 0 : Math.max(0,sentAt-lastSendAt);
+      lastSendAt = sentAt;
       try {
-        const result = await request('/api/input',{client_id:clientId,source,sequence:++sequence,...input},inputAbort,240);
+        const result = await request('/api/input',{client_id:clientId,source,sequence:++sequence,...input,telemetry:{...link}},inputAbort,240);
+        if (epoch === controlEpoch) {
+          link.rtt_ms = Math.max(0,performance.now()-sentAt);
+          link.max_rtt_ms = Math.max(link.max_rtt_ms,link.rtt_ms);
+        }
         if (epoch === controlEpoch && result.state) acceptState(result.state);
         if (!result.ok && epoch === controlEpoch) reportError(result.error || '输入未被接受');
-      } catch (error) { if (error.name !== 'AbortError') reportError(`输入: ${error.message}`); }
-      finally { inputBusy = false; inputAbort = null; }
+      } catch (error) {
+        if (epoch === controlEpoch) {
+          if (error.name === 'AbortError') link.timeouts++;
+          else link.errors++;
+          console.warn('input_link_error', {sequence,epoch,...link,error:error.message});
+          reportError(error.name === 'AbortError' ? '输入请求超时；请检查网络，若已停机请重新校准和使能。' : `输入: ${error.message}`);
+        }
+      } finally {
+        inputBusy = false; inputAbort = null;
+        // Resample current controls, never retry or queue the old packet.
+        if (epoch === controlEpoch && online && visible() && performance.now()-sentAt >= 50) {
+          setTimeout(() => { if (epoch === controlEpoch && online && visible()) void heartbeat(); },0);
+        }
+      }
     }
-    if (simulated() && visible() && online && !picoBusy) {
+    if (picoAvailable() && simulated() && visible() && online && !picoBusy) {
       picoBusy = true;
       picoAbort = new AbortController();
       const epoch = controlEpoch;
@@ -235,13 +273,16 @@
     $('pad-status').textContent = mockInput ? (simulated() ? '模拟手柄 · 无物理设备' : 'ROS2 禁止模拟输入') : (padName ? '物理手柄已连接' : '未检测到物理手柄');
     $('input-age').textContent = ageText(state?.input?.age_ms);
     $('gamepad-name').textContent = padName || '未检测到物理手柄';
-    $('gamepad-detail').textContent = padName ? (padReleaseWaiting ? '请松开所有按键并将摇杆归中，然后显式使能。' : '标准映射：RB 按住运行，Start 显式使能。') : '连接标准映射手柄，然后按任意按钮唤醒浏览器。';
+    $('gamepad-detail').textContent = padName ? (padReleaseWaiting ? '请松开所有按键并将摇杆归中，然后显式使能。' : (latchedControls() ? `RB 长按${state?.controls?.rb_hold_s || 1}秒切换使能；左摇杆平移，右摇杆水平控制整机左右转向。` : '标准映射：RB 按住运行，Start 显式使能。')) : '连接标准映射手柄，然后按任意按钮唤醒浏览器。';
     $('pad-axes').textContent = ['LX','LY','RX','RY'].map((label,index) => `${label} ${fixed(lastInput.axes[index])}`).join(' · ');
-    $('real-deadman').textContent = lastInput.buttons[5] ? 'RB HELD' : 'RB RELEASED';
-    $('real-deadman').className = `badge ${lastInput.buttons[5] ? 'badge-live' : 'badge-outline'}`;
+    const latched = Boolean(state?.input?.motion_latched);
+    $('real-deadman').textContent = latchedControls() ? (latched ? '使能已锁定' : `未使能 · RB ${Math.min(100,Math.round((state?.input?.rb_hold_ms || 0) / ((state?.controls?.rb_hold_s || 1)*10)))}%`) : (lastInput.buttons[5] ? 'RB HELD' : 'RB RELEASED');
+    $('real-deadman').className = `badge ${(latchedControls() ? latched : lastInput.buttons[5]) ? 'badge-live' : 'badge-outline'}`;
+    $('rb-mapping-hint').textContent = latchedControls() ? '长按1秒切换使能' : '按住运行';
+    $('link-health').textContent = `RTT ${Math.round(link.rtt_ms)} ms · 最大 ${Math.round(link.max_rtt_ms)} ms · 超时 ${link.timeouts} · 错误 ${link.errors}`;
     $('deadman-button').disabled = !online || !simulated() || !visible();
     for (let i = 0; i < 4; i++) $(`axis-${i}`).disabled = !simulated();
-    const mockPico = simulated();
+    const mockPico = picoAvailable() && simulated();
     $('pico-simulator-controls').hidden = !mockPico;
     $('pico-source-badge').textContent = mockPico ? 'SIMULATED POSE' : 'NATIVE SOURCE';
     $('pico-source-badge').className = `badge ${mockPico ? 'badge-mock' : 'badge-outline'}`;
@@ -269,26 +310,26 @@
     $('mode-dot').className = `mode-dot${state.mode === 'fault' ? ' fault' : state.enabled ? ' active' : ''}`;
     $('controller-status').textContent = state.status || robot.fault || '等待操作';
     $('enable-button').disabled = actionBusy || state.enabled || state.mode === 'fault' || !state.calibrated || !controlReady || !neutral() || !visible();
-    $('calibrate-button').disabled = actionBusy || !controlReady || !neutral() || !gripsReleased() || !['idle','stand'].includes(state.mode) || !visible();
+    $('calibrate-button').disabled = actionBusy || !controlReady || input.motion_latched || !neutral() || !gripsReleased() || !['idle','stand'].includes(state.mode) || !visible();
     ['stand','walk','teleop'].forEach(mode => {
       const button = $(`${mode}-button`);
       button.disabled = actionBusy || !state.enabled || !state.calibrated || !owned;
       if (mode === 'walk') button.disabled ||= !inputReady;
-      if (mode === 'teleop') button.disabled ||= !pico.calibrated || !pico.connected || (hardware && !state.limits?.hardware_upper_confirmed);
+      if (mode === 'teleop') button.disabled ||= !picoAvailable() || !pico.calibrated || !pico.connected || (hardware && !state.limits?.hardware_upper_confirmed);
       button.classList.toggle('selected',state.mode === mode);
       button.setAttribute('aria-pressed',String(state.mode === mode));
     });
     $('clear-fault-button').hidden = state.mode !== 'fault' && !robot.fault;
     $('clear-fault-button').disabled = actionBusy;
-    let next = '已就绪。选择模式后，按住 RB / Space 允许运动。';
+    let next = latchedControls() ? '使能已锁定。按 X 选择行走；左摇杆平移、右摇杆左右转向；RB 再长按1秒取消使能。' : '已就绪。选择模式后，按住 RB / Space 允许运动。';
     if (!visible()) next = '窗口已失焦，控制已停止。返回后请显式使能。';
     else if (!owned) next = '另一控制端持有输入。软件停止仍可用。';
     else if (!controlReady) next = hardware && source === 'simulator' ? '请选择浏览器物理手柄；ROS2 禁止模拟输入。' : '等待新鲜手柄或原生 Pico 输入。请检查输入源与连接。';
     else if (!neutral() && !state.enabled) next = '请将摇杆归中并释放 RB，再标定或使能。';
     else if (!gripsReleased() && !state.calibrated) next = '请释放双手 Grip，然后标定中立位。';
     else if (!state.calibrated) next = '将头显、双手和摇杆归中，释放 RB，然后标定。';
-    else if (!state.enabled) next = '中立位已标定。点击使能或按 Start，恢复控制。';
-    else if (hardware && !state.limits?.hardware_upper_confirmed) next = '行走可用；上身硬件限位配置未确认，Pico 遥操作被锁定。';
+    else if (!state.enabled) next = latchedControls() ? '中立位已标定。RB 长按1秒锁定使能，也可点击使能或按 Start。' : '中立位已标定。点击使能或按 Start，恢复控制。';
+    else if (hardware && !state.limits?.hardware_upper_confirmed) next += ' Pico 上身限位尚未确认，遥操作锁定。';
     $('next-step').textContent = next;
     check('input',controlReady,inputReady ? `${input.source || source} · ${Math.round(input.age_ms)} ms` : nativePico ? '原生 Pico · 在线' : '等待 / 未持有');
     check('calibration',state.calibrated,state.calibrated ? '已标定' : '未标定');
@@ -315,7 +356,7 @@
     $('pico-age').innerHTML = `${Number.isFinite(pico.age_ms) ? Math.round(pico.age_ms) : '--'}<em>ms</em>`;
     $('ik-error').innerHTML = `${fixed(pico.ik_error_m,3)}<em>m</em>`;
     $('pico-calibration').textContent = pico.calibrated ? '已标定' : '未标定';
-    $('pico-note').textContent = simulated() ? '以下模拟姿态仅发送到 MOCK；不会向 ROS2 发送。实际 Pico 使用官方 XRoboToolkit PC Service。' : '模拟姿态已关闭。实际 Pico 需要官方 XRoboToolkit PC Service；此处只显示服务端原生源反馈。';
+    $('pico-note').textContent = !picoAvailable() ? 'Rust 首版仅支持手柄；Pico 上肢请使用 Python 控制服务。' : simulated() ? '以下模拟姿态仅发送到 MOCK；不会向 ROS2 发送。实际 Pico 使用官方 XRoboToolkit PC Service。' : '模拟姿态已关闭。实际 Pico 需要官方 XRoboToolkit PC Service；此处只显示服务端原生源反馈。';
     $('supermimic-reason').textContent = state.supermimic?.reason || '后续独立 HAL 后端，尚未实现。';
     const events = (state.events || []).slice(-8).reverse();
     const eventKey = JSON.stringify(events);
@@ -335,7 +376,7 @@
       }
     }
     $('clock').textContent = `${clockFormat.format(new Date())} 北京时间`;
-    $('footer-status').textContent = `20 Hz input · 10 Hz feedback · ${hardware ? 'ROS2 / native MC' : 'MOCK / no devices'}`;
+    $('footer-status').textContent = `20 Hz input · 5 Hz feedback · ${hardware ? 'ROS2 / native MC' : 'MOCK / no devices'}`;
     renderInput();
   }
 
@@ -403,6 +444,6 @@
   updateSliders();
   renderInput();
   void pollState();
-  setInterval(pollState,100);
+  setInterval(pollState,200);
   setInterval(heartbeat,50);
 })();

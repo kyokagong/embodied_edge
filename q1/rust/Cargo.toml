@@ -1,0 +1,72 @@
+[package]
+name = "q1-edge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+
+[features]
+default = []
+ros2 = ["dep:r2r", "dep:futures"]
+supermimic = ["dep:ort", "dep:ndarray", "dep:ndarray-npy", "dep:sha2", "dep:bincode", "dep:libc", "dep:hmac"]
+
+[dependencies]
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+futures = { version = "0.3", optional = true }
+rand = "0.8"
+r2r = { version = "=0.9.7", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "io-util", "sync"] }
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "load-dynamic"], optional = true }
+ndarray = { version = "0.16", optional = true }
+ndarray-npy = { version = "0.9", optional = true }
+sha2 = { version = "0.10", optional = true }
+bincode = { version = "1.3", optional = true }
+libc = { version = "0.2", optional = true }
+hmac = { version = "0.12", optional = true }
+
+[[bin]]
+name = "q1-guard-net"
+path = "src/bin/q1-guard-net.rs"
+required-features = ["supermimic"]
+
+[[bin]]
+name = "q1-air-check"
+path = "src/bin/q1-air-check.rs"
+required-features = ["supermimic"]
+
+[[bin]]
+name = "q1-rt"
+path = "src/bin/q1-rt.rs"
+required-features = ["ros2", "supermimic"]
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
+[[bin]]
+name = "q1-edge"
+path = "src/main.rs"
+
+[[bin]]
+name = "q1-model-check"
+path = "src/bin/q1-model-check.rs"
+required-features = ["supermimic"]
+
+[[bin]]
+name = "q1-console-proxy"
+path = "src/bin/q1-console-proxy.rs"
+
+[[bin]]
+name = "q1-stand"
+path = "src/bin/q1-stand.rs"
+required-features = ["supermimic"]
+
+[patch.crates-io]
+r2r_common = { path = "../vendor/r2r_common_cross" }
+
+[[bin]]
+name = "q1-policy"
+path = "src/bin/q1-policy.rs"
+required-features = ["supermimic"]
